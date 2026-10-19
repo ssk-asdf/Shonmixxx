@@ -284,7 +284,13 @@ Library::Library(
 
     m_pShonShowMatches = std::make_unique<ControlPushButton>(
             ConfigKey(QStringLiteral("[Library]"), QStringLiteral("shon_show_matches")));
-    m_pShonShowMatches->connectValueChangeRequest(this, &Library::slotShonToggleMatches);
+    // Toggle, so the MATCH button stays lit while the filter is on.
+    static_cast<ControlPushButton*>(m_pShonShowMatches.get())
+            ->setButtonMode(mixxx::control::ButtonMode::Toggle);
+    connect(m_pShonShowMatches.get(),
+            &ControlObject::valueChanged,
+            this,
+            &Library::slotShonToggleMatches);
     connect(&PlayerInfo::instance(),
             &PlayerInfo::currentPlayingTrackChanged,
             this,
@@ -311,11 +317,11 @@ Library::Library(
 }
 
 void Library::slotShonToggleMatches(double value) {
-    // React to the press only, not the release.
-    if (value <= 0.0) {
+    const bool active = value > 0.0;
+    if (active == m_shonMatchesActive) {
         return;
     }
-    m_shonMatchesActive = !m_shonMatchesActive;
+    m_shonMatchesActive = active;
     if (m_shonMatchesActive) {
         shonApplyMatchesFilter(PlayerInfo::instance().getCurrentPlayingTrack());
     } else {
