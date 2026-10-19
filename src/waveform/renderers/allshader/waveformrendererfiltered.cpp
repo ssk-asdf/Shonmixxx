@@ -6,6 +6,7 @@
 #include "util/math.h"
 #include "waveform/renderers/waveformwidgetrenderer.h"
 #include "waveform/waveform.h"
+#include <vector>
 
 using namespace rendergraph;
 
@@ -146,6 +147,14 @@ bool WaveformRendererFiltered::preprocessInner() {
                     numVerticesPerLine * (1 + pixelLength * 2)}};
     const double maxSamplingRange = visualIncrementPerPixel / 2.0;
 
+    // Pass 1: collect the peak of each band for every pixel.
+    std::vector<float> peaks[3][2];
+    for (int b = 0; b < 3; ++b) {
+        for (int c = 0; c < 2; ++c) {
+            peaks[b][c].assign(pixelLength, 0.f);
+        }
+    }
+
     for (int pos = 0; pos < pixelLength; ++pos) {
         const int visualFrameStart = std::lround(xVisualFrame - maxSamplingRange);
         const int visualFrameStop = std::lround(xVisualFrame + maxSamplingRange);
@@ -154,42 +163,56 @@ bool WaveformRendererFiltered::preprocessInner() {
         const int visualIndexStop =
                 std::min(std::max(visualFrameStop, visualFrameStart + 1) * 2, dataSize - 1);
 
-        const float fpos = static_cast<float>(pos) * invDevicePixelRatio;
-
-        // 3 bands, 2 channels
-        float max[3][2]{};
         uchar u8max[3][2]{};
         for (int chn = 0; chn < 2; chn++) {
             for (int i = visualIndexStart + chn; i < visualIndexStop + chn; i += 2) {
                 const WaveformData& waveformData = data[i];
-
                 u8max[0][chn] = math_max(u8max[0][chn], waveformData.filtered.low);
                 u8max[1][chn] = math_max(u8max[1][chn], waveformData.filtered.mid);
                 u8max[2][chn] = math_max(u8max[2][chn], waveformData.filtered.high);
             }
-            // Cast to float
-            max[0][chn] = static_cast<float>(u8max[0][chn]);
-            max[1][chn] = static_cast<float>(u8max[1][chn]);
-            max[2][chn] = static_cast<float>(u8max[2][chn]);
         }
 
-        // TODO: this can be optimized by using one geometrynode per band
-        // + one for the horizontal axis, and uniform color materials,
-        // instead of passing constant color as vertex.
-
-        for (int bandIndex = 0; bandIndex < 3; bandIndex++) {
-            max[bandIndex][0] *= bandGain[bandIndex];
-            max[bandIndex][1] *= bandGain[bandIndex];
-
-            vertexUpdater[bandIndex].addRectangle(
-                    {fpos - halfPixelSize,
-                            halfBreadth - heightFactor * max[bandIndex][0]},
-                    {fpos + halfPixelSize,
-                            halfBreadth + heightFactor * max[bandIndex][1]},
-                    {rgb[bandIndex]});
+        for (int b = 0; b < 3; ++b) {
+            for (int c = 0; c < 2; ++c) {
+                peaks[b][c][pos] = static_cast<float>(u8max[b][c]) * bandGain[b];
+            }
         }
 
         xVisualFrame += visualIncrementPerPixel;
+    }
+
+    // Pass 2: smooth each band so peaks round off into a wave.
+    // Raise smoothingRadius for a softer wave, lower it for more detail.
+    const int smoothingRadius = 3;
+    std::vector<float> smoothed(pixelLength);
+    for (int b = 0; b < 3; ++b) {
+        for (int c = 0; c < 2; ++c) {
+            const std::vector<float>& src = peaks[b][c];
+            for (int pos = 0; pos < pixelLength; ++pos) {
+                const int from = std::max(pos - smoothingRadius, 0);
+                const int to = std::min(pos + smoothingRadius, pixelLength - 1);
+                float sum = 0.f;
+                for (int k = from; k <= to; ++k) {
+                    sum += src[k];
+                }
+                smoothed[pos] = sum / static_cast<float>(to - from + 1);
+            }
+            peaks[b][c] = smoothed;
+        }
+    }
+
+    // Pass 3: draw the smoothed bands.
+    for (int pos = 0; pos < pixelLength; ++pos) {
+        const float fpos = static_cast<float>(pos) * invDevicePixelRatio;
+        for (int bandIndex = 0; bandIndex < 3; bandIndex++) {
+            vertexUpdater[bandIndex].addRectangle(
+                    {fpos - halfPixelSize,
+                            halfBreadth - heightFactor * peaks[bandIndex][0][pos]},
+                    {fpos + halfPixelSize,
+                            halfBreadth + heightFactor * peaks[bandIndex][1][pos]},
+                    {rgb[bandIndex]});
+        }
     }
 
     DEBUG_ASSERT(reserved ==
