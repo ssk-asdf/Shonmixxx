@@ -179,7 +179,7 @@ bool WaveformRendererFiltered::preprocessInner() {
 
     // Pass 2: smooth each band so peaks round off into a wave.
     // Raise smoothingRadius for a softer wave, lower it for more detail.
-    const int smoothingRadius = 3;
+    const int smoothingRadius = 5;
     std::vector<float> smoothed(pixelLength);
     for (int b = 0; b < 3; ++b) {
         for (int c = 0; c < 2; ++c) {
