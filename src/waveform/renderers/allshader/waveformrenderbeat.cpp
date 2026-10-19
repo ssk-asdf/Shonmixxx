@@ -125,6 +125,28 @@ bool WaveformRenderBeat::preprocessInner() {
             ? rendererBreadth / static_cast<float>(mixxx::kMaxSupportedStems)
             : rendererBreadth;
 
+    // Phrase lines: every kBeatsPerPhrase beats gets a thicker line.
+    // 64 beats = 16 bars of 4/4. Use 128 for 32 bars.
+    // Counted from the first beat of the grid, so the grid's first beat
+    // should sit on a downbeat.
+    constexpr int kBeatsPerPhrase = 64;
+    constexpr float kPhraseLineWidth = 4.f;
+    const auto zeroPosition = mixxx::audio::FramePos(0.0);
+    int beatIndex = 0;
+    if (startPosition > zeroPosition) {
+        for (auto it = trackBeats->iteratorFrom(zeroPosition);
+                it != trackBeats->cend() && *it < startPosition;
+                ++it) {
+            beatIndex++;
+        }
+    } else {
+        for (auto it = trackBeats->iteratorFrom(startPosition);
+                it != trackBeats->cend() && *it < zeroPosition;
+                ++it) {
+            beatIndex--;
+        }
+    }
+
     for (auto it = trackBeats->iteratorFrom(startPosition);
             it != trackBeats->cend() && *it <= endPosition;
             ++it) {
@@ -135,8 +157,13 @@ bool WaveformRenderBeat::preprocessInner() {
 
         xBeatPoint = qRound(xBeatPoint * devicePixelRatio) / devicePixelRatio;
 
-        const float x1 = static_cast<float>(xBeatPoint);
-        const float x2 = x1 + 1.f;
+        const bool isPhraseStart =
+                ((beatIndex % kBeatsPerPhrase) + kBeatsPerPhrase) % kBeatsPerPhrase == 0;
+        beatIndex++;
+
+        const float lineWidth = isPhraseStart ? kPhraseLineWidth : 1.f;
+        const float x1 = static_cast<float>(xBeatPoint) - (lineWidth - 1.f) / 2.f;
+        const float x2 = x1 + lineWidth;
 
         if (m_isSlipRenderer && splitStemTracks) {
             for (int stemIdx = 0; stemIdx < mixxx::kMaxSupportedStems; ++stemIdx) {
