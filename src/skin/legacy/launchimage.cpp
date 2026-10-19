@@ -37,11 +37,18 @@ double easeInOut(double x) {
 }
 
 #ifdef MIXXX_USE_QML
-// The spinner is a ring seen through two half-plane clips. Each clip spins
-// at its own steady speed, so the visible arc's two ends move at different
-// speeds and chase each other. Only RotationAnimators are used, and those
-// run on Qt Quick's render thread, which keeps going while the main thread
-// is busy starting Mixxx.
+// The spinner recreates the original look: one continuous arc with round
+// ends that grows to 270 degrees and shrinks to a short sliver, its ends
+// chasing each other, while the whole arc spins. It never closes.
+//
+// Qt Quick can only keep animations running during startup if they are
+// Animators (rotation, opacity), which run on the render thread. So the arc
+// is built from a ring seen through rotated half-circle clips:
+//  - Short arcs (12 to 180 degrees): the overlap of two half circles.
+//  - Long arcs (180 to 270 degrees): the union of two half circles.
+// Rotating one half circle grows or shrinks the arc, and the two layers
+// hand off at exactly 180 degrees where they look identical. Small dots
+// ride on the arc ends to give them round caps.
 const char kSplashQml[] = R"QML(
 import QtQuick
 import QtQuick.Window
@@ -68,68 +75,151 @@ Window {
 
     Item {
         id: spinner
-        width: 38
-        height: 38
+        readonly property real s: 38
+        readonly property real t: 3.5
+        readonly property color arcColor: "#2f6bff"
+        width: s
+        height: s
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: logo.bottom
         anchors.topMargin: 44
+
+        component Ring: Rectangle {
+            width: spinner.s
+            height: spinner.s
+            radius: spinner.s / 2
+            color: "transparent"
+            border.width: spinner.t
+            border.color: spinner.arcColor
+            antialiasing: true
+        }
+        // Round cap at the top of the ring (angle 0) in its parent's frame.
+        component TopCap: Rectangle {
+            x: (spinner.s - spinner.t) / 2
+            y: 0
+            width: spinner.t
+            height: spinner.t
+            radius: spinner.t / 2
+            color: spinner.arcColor
+            antialiasing: true
+        }
+        // Round cap at the bottom of the ring (angle 180).
+        component BottomCap: TopCap {
+            y: spinner.s - spinner.t
+        }
+        // Right half of the ring area, clipped: shows angles 0 to 180.
+        component HalfClip: Item {
+            x: spinner.s / 2
+            width: spinner.s / 2
+            height: spinner.s
+            clip: true
+        }
+        component Frame: Item {
+            width: spinner.s
+            height: spinner.s
+            transformOrigin: Item.Center
+        }
 
         // Faint full ring behind the arc.
         Rectangle {
             anchors.fill: parent
             radius: width / 2
             color: "transparent"
-            border.width: 3.5
+            border.width: spinner.t
             border.color: "#1affffff"
+            antialiasing: true
         }
 
-        // First half-plane clip: right half of the spinner, spun around
-        // the spinner's center (its left edge midpoint).
-        Item {
-            id: outerClip
-            x: spinner.width / 2
-            width: spinner.width / 2
-            height: spinner.height
-            clip: true
-            transformOrigin: Item.Left
+        Frame {
+            id: spin
 
-            // Second half-plane clip, spun relative to the first.
+            // Short arcs: overlap of half circle [0, 180] and [b, b + 180],
+            // which is the arc [b, 180].
             Item {
-                id: innerClip
-                x: 0
-                width: spinner.width / 2
-                height: spinner.height
-                clip: true
-                transformOrigin: Item.Left
-
-                Rectangle {
-                    x: -spinner.width / 2
-                    width: spinner.width
-                    height: spinner.height
-                    radius: width / 2
-                    color: "transparent"
-                    border.width: 3.5
-                    border.color: "#2f6bff"
-                    antialiasing: true
+                id: shortLayer
+                anchors.fill: parent
+                HalfClip {
+                    Frame {
+                        id: shortRotor
+                        x: -spinner.s / 2
+                        rotation: 168
+                        HalfClip {
+                            Ring { x: -spinner.s / 2 }
+                        }
+                    }
                 }
+                Frame {
+                    id: shortTailRotor
+                    rotation: 168
+                    TopCap {}
+                }
+                BottomCap {}
+            }
+
+            // Long arcs: union of half circle [0, 180] and [b, b + 180],
+            // which is the arc [0, b + 180].
+            Item {
+                id: longLayer
+                anchors.fill: parent
+                opacity: 0
+                HalfClip {
+                    Ring { x: -spinner.s / 2 }
+                }
+                Frame {
+                    id: longRotor
+                    rotation: 0
+                    HalfClip {
+                        Ring { x: -spinner.s / 2 }
+                    }
+                    BottomCap {}
+                }
+                TopCap {}
             }
         }
 
+        // Steady spin of the whole arc.
         RotationAnimator {
-            target: outerClip
+            target: spin
             from: 0
             to: 360
             duration: 1000
             loops: Animation.Infinite
             running: true
         }
-        RotationAnimator {
-            target: innerClip
-            from: 0
-            to: 360
-            duration: 2400
+
+        // Grow to 270, shrink back to a sliver. Animators only, so the
+        // whole sequence runs on the render thread.
+        SequentialAnimation {
             loops: Animation.Infinite
             running: true
+
+            // Timing keeps both arc ends always moving forward with the
+            // spin (360 deg/s) and every speed change smooth:
+            // the tail nearly holds while the head races ahead, then the
+            // tail catches up.
+            // Grow 12 to 180 (short layer).
+            ParallelAnimation {
+                RotationAnimator { target: shortRotor; from: 168; to: 0; duration: 900; easing.type: Easing.InOutQuad }
+                RotationAnimator { target: shortTailRotor; from: 168; to: 0; duration: 900; easing.type: Easing.InOutQuad }
+            }
+            // Hand off to the long layer at 180.
+            ParallelAnimation {
+                OpacityAnimator { target: shortLayer; to: 0; duration: 1 }
+                OpacityAnimator { target: longLayer; to: 1; duration: 1 }
+            }
+            // Grow 180 to 270, then shrink back to 180 (long layer).
+            RotationAnimator { target: longRotor; from: 0; to: 90; duration: 300; easing.type: Easing.InOutQuad }
+            RotationAnimator { target: longRotor; from: 90; to: 0; duration: 520; easing.type: Easing.InOutQuad }
+            // Hand back to the short layer at 180.
+            ParallelAnimation {
+                OpacityAnimator { target: longLayer; to: 0; duration: 1 }
+                OpacityAnimator { target: shortLayer; to: 1; duration: 1 }
+            }
+            // Shrink 180 to 12: the tail chases the head.
+            ParallelAnimation {
+                RotationAnimator { target: shortRotor; from: 0; to: 168; duration: 650; easing.type: Easing.InOutQuad }
+                RotationAnimator { target: shortTailRotor; from: 0; to: 168; duration: 650; easing.type: Easing.InOutQuad }
+            }
         }
     }
 
