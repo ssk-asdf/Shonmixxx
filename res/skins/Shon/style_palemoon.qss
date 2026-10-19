@@ -3262,3 +3262,52 @@ WSearchLineEdit::indicator:unchecked:selected {
 }
 /************** common styles for WEffectSelector ******************************
 *************** QSpinBox, QMenu, QToolTip *************************************/
+
+/* ===== Shon flat layout ===== */
+/* One flat surface like djay Pro: no boxed panels, rounded corners, bevels,
+   or gaps. Sections are split by single 1px lines only. */
+#Deck1, #DeckCompact1, #DeckMini1,
+#Deck2, #DeckCompact2, #DeckMini2,
+#Deck3, #DeckCompact3, #DeckMini3,
+#Deck4, #DeckCompact4, #DeckMini4,
+#MixerDecks,
+#MixerContainer,
+#MainControls,
+#HeadphoneControls,
+#ToolBar,
+#WaveformsContainer,
+#FxUnit1, #FxUnit2, #FxUnit3, #FxUnit4,
+#FxUnitControlsCollapsed, #FxUnitControlsExpanded,
+#FxSlotsCollapsed, #FxSlotsExpanded,
+#FxUnitHeaderCollapsed, #FxUnitHeaderExpanded,
+#FxRackFillerL, #FxRackFillerR,
+#MicDuckingContainer, #MicAuxUnit, #MicAuxAddFrame,
+#Sampler, #SamplerMini, #SamplerRow,
+#SamplerExpandBox,
+#SearchLineBox,
+#LibExpandBox,
+#SidebarBox,
+#PreviewDeck,
+#LibraryFeatureControls {
+  border: none;
+  border-radius: 0px;
+  margin: 0px;
+  background-color: #151517;
+}
+
+/* The single divider lines */
+#ToolBar,
+#WaveformsContainer {
+  border-bottom: 1px solid #2a2a2e;
+}
+#Deck1, #DeckCompact1, #DeckMini1,
+#Deck3, #DeckCompact3, #DeckMini3 {
+  border-right: 1px solid #2a2a2e;
+}
+#Deck2, #DeckCompact2, #DeckMini2,
+#Deck4, #DeckCompact4, #DeckMini4 {
+  border-left: 1px solid #2a2a2e;
+}
+#SidebarBox {
+  border-right: 1px solid #2a2a2e;
+}
