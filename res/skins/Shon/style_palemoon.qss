@@ -3296,9 +3296,26 @@ WSearchLineEdit::indicator:unchecked:selected {
 }
 
 /* The single divider lines */
-#ToolBar,
-#WaveformsContainer {
+#ToolBar {
   border-bottom: 1px solid #2a2a2e;
+}
+/* The waveform/deck drag handle is the line between waveforms and decks:
+   a thin bar with one 1px line instead of the 9px grip graphic. */
+#WaveformsContainer {
+  border-bottom: none;
+}
+#WaveformSplitter::handle,
+#SidebarCoverSplitter::handle {
+  image: none;
+  height: 5px;
+  background-color: #151517;
+  border: none;
+  border-top: 1px solid #2a2a2e;
+}
+#WaveformSplitter::handle:pressed,
+#SidebarCoverSplitter::handle:pressed {
+  image: none;
+  border-top: 1px solid #2f6bff;
 }
 #Deck1, #DeckCompact1, #DeckMini1,
 #Deck3, #DeckCompact3, #DeckMini3 {
