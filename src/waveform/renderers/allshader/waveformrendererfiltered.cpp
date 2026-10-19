@@ -118,15 +118,10 @@ bool WaveformRendererFiltered::preprocessInner() {
                 static_cast<float>(m_rgbHighColor_g),
                 static_cast<float>(m_rgbHighColor_b));
     } else {
-        rgb[0] = QVector3D(static_cast<float>(m_lowColor_r),
-                static_cast<float>(m_lowColor_g),
-                static_cast<float>(m_lowColor_b));
-        rgb[1] = QVector3D(static_cast<float>(m_midColor_r),
-                static_cast<float>(m_midColor_g),
-                static_cast<float>(m_midColor_b));
-        rgb[2] = QVector3D(static_cast<float>(m_highColor_r),
-                static_cast<float>(m_highColor_g),
-                static_cast<float>(m_highColor_b));
+        // Shon colors: blue lows, orange mids, warm white highs.
+        rgb[0] = QVector3D(0.18f, 0.42f, 1.00f);
+        rgb[1] = QVector3D(0.95f, 0.64f, 0.23f);
+        rgb[2] = QVector3D(1.00f, 0.96f, 0.90f);
     }
 
     RGBVertexUpdater axisVertexUpdater{geometry().vertexDataAs<Geometry::RGBColoredPoint2D>()};

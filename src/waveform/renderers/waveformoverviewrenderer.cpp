@@ -190,9 +190,10 @@ void drawWaveformPartLMH(
         const WaveformSignalColors& signalColors,
         bool mono) {
     ScopedTimer t(QStringLiteral("waveformOverviewRenderer::drawNextPixmapPartLMH"));
-    const QColor lowColor = signalColors.getLowColor();
-    const QColor midColor = signalColors.getMidColor();
-    const QColor highColor = signalColors.getHighColor();
+    // Shon colors: blue lows, orange mids, warm white highs.
+    const QColor lowColor(47, 107, 255);
+    const QColor midColor(242, 163, 59);
+    const QColor highColor(255, 245, 230);
     int startVal = 0;
     if (start) {
         startVal = *start;
