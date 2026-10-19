@@ -774,6 +774,9 @@ void CoreServices::initialize(QApplication* pApp) {
     // https://github.com/mixxxdj/mixxx/issues/9188
     m_pPlayerManager->loadSamplers();
 
+    // Shon: put last session's tracks back on the decks.
+    m_pPlayerManager->restoreDecks();
+
     m_pTouchShift = std::make_unique<ControlPushButton>(ConfigKey("[Controls]", "touch_shift"));
 
     // The UI controls must be created here so that controllers can bind to

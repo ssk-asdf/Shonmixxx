@@ -1,9 +1,11 @@
 #include "mixer/playermanager.h"
 
+#include <QFile>
 #include <QRegularExpression>
 
 #include "audio/types.h"
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
 #include "effects/effectsmanager.h"
 #include "engine/channels/enginedeck.h"
 #include "engine/enginemixer.h"
@@ -25,6 +27,31 @@
 #include "util/logger.h"
 
 namespace {
+
+// Shon session restore: each deck's last loaded track is stored here.
+const QString kRestoreDeckKey = QStringLiteral("ShonLastTrackLocation");
+const ConfigKey kRestoreDecksEnabledKey(
+        QStringLiteral("[Controls]"), QStringLiteral("ShonRestoreDecks"));
+const QString kDeckStateKey = QStringLiteral("ShonDeckState");
+const QString kDeckStateLocationKey = QStringLiteral("ShonDeckStateLocation");
+// Deck controls saved and restored. Mixer controls (volume, EQ, crossfader)
+// are left out on purpose: the controller's physical knobs own those.
+const QStringList kDeckStateControls = {
+        QStringLiteral("playposition"),
+        QStringLiteral("rate"),
+        QStringLiteral("keylock"),
+        QStringLiteral("pitch_adjust"),
+        QStringLiteral("loop_enabled"),
+        QStringLiteral("loop_start_position"),
+        QStringLiteral("loop_end_position"),
+        QStringLiteral("sync_enabled"),
+        QStringLiteral("sync_leader"),
+};
+// Saved every few seconds so a crash loses at most this much.
+constexpr int kDeckStateSaveIntervalMs = 3000;
+// Past this point in a track, restore to the start instead.
+constexpr double kDeckStateNearEnd = 0.95;
+
 
 const mixxx::Logger kLogger("PlayerManager");
 const QString kAppGroup = QStringLiteral("[App]");
@@ -136,6 +163,12 @@ PlayerManager::PlayerManager(UserSettingsPointer pConfig,
     m_pSamplerBank = new SamplerBank(m_pConfig, this);
 
     m_cloneTimer.start();
+
+    connect(&m_shonStateTimer,
+            &QTimer::timeout,
+            this,
+            &PlayerManager::shonSaveDeckStates);
+    m_shonStateTimer.start(kDeckStateSaveIntervalMs);
 }
 
 PlayerManager::~PlayerManager() {
@@ -357,6 +390,42 @@ void PlayerManager::addDeckInner() {
             this,
             &PlayerManager::slotSaveEjectedTrack);
 
+    // Shon session restore: remember what is on this deck, saved right away
+    // so it survives a crash, not just a clean exit.
+    connect(pDeck,
+            &BaseTrackPlayer::newTrackLoaded,
+            this,
+            [this, pDeck](TrackPointer pTrack) {
+                if (!pTrack) {
+                    return;
+                }
+                m_pConfig->setValue(ConfigKey(pDeck->getGroup(), kRestoreDeckKey),
+                        pTrack->getLocation());
+                m_pConfig->save();
+                // Restoring after startup: apply saved position, tempo, sync.
+                // Short delay so the track finishes its own load seek first.
+                const QString group = pDeck->getGroup();
+                if (m_shonPendingRestore.contains(group) &&
+                        m_pConfig->getValueString(ConfigKey(group, kDeckStateLocationKey)) !=
+                                pTrack->getLocation()) {
+                    // A different track was loaded, so the saved state no longer applies.
+                    m_shonPendingRestore.remove(group);
+                }
+                if (m_shonPendingRestore.contains(group)) {
+                    QTimer::singleShot(500, this, [this, group]() {
+                        shonApplyDeckState(group);
+                    });
+                }
+            });
+    connect(pDeck,
+            &BaseTrackPlayer::playerEmpty,
+            this,
+            [this, pDeck]() {
+                m_pConfig->setValue(ConfigKey(pDeck->getGroup(), kRestoreDeckKey),
+                        QString());
+                m_pConfig->save();
+            });
+
     if (m_pTrackAnalysisScheduler) {
         connect(pDeck,
                 &BaseTrackPlayer::newTrackLoaded,
@@ -398,6 +467,133 @@ void PlayerManager::addDeckInner() {
 
     // Setup EQ ControlProxies used for resetting EQs on track load
     pDeck->setupEqControls();
+}
+
+void PlayerManager::restoreDecks() {
+    if (!m_pConfig->getValue(kRestoreDecksEnabledKey, true)) {
+        return;
+    }
+    // Read everything first, since loading a deck saves its own entry.
+    QList<QString> locations;
+    for (Deck* pDeck : std::as_const(m_decks)) {
+        locations.append(m_pConfig->getValueString(
+                ConfigKey(pDeck->getGroup(), kRestoreDeckKey)));
+    }
+    for (int i = 0; i < locations.size(); ++i) {
+        const QString& location = locations.at(i);
+        if (location.isEmpty() || !QFile::exists(location)) {
+            continue;
+        }
+        const QString group = m_decks.at(i)->getGroup();
+        // Only restore state that belongs to this exact track.
+        if (m_pConfig->getValueString(ConfigKey(group, kDeckStateLocationKey)) == location) {
+            QHash<QString, double> state;
+            const QStringList pairs = m_pConfig->getValueString(
+                    ConfigKey(group, kDeckStateKey))
+                                              .split(QLatin1Char(';'), Qt::SkipEmptyParts);
+            for (const QString& pair : pairs) {
+                const int eq = pair.indexOf(QLatin1Char('='));
+                if (eq > 0) {
+                    bool ok = false;
+                    const double value = pair.mid(eq + 1).toDouble(&ok);
+                    if (ok) {
+                        state.insert(pair.left(eq), value);
+                    }
+                }
+            }
+            if (!state.isEmpty()) {
+                m_shonPendingRestore.insert(group, state);
+                // If the track never finishes loading, give up so this deck
+                // goes back to saving its state normally.
+                QTimer::singleShot(15000, this, [this, group]() {
+                    m_shonPendingRestore.remove(group);
+                });
+            }
+        }
+        slotLoadLocationToPlayer(location, group, false);
+    }
+}
+
+void PlayerManager::shonSaveDeckStates() {
+    bool changed = false;
+    for (Deck* pDeck : std::as_const(m_decks)) {
+        const QString group = pDeck->getGroup();
+        // Don't overwrite saved state before it has been restored.
+        if (m_shonPendingRestore.contains(group)) {
+            continue;
+        }
+        const TrackPointer pTrack = pDeck->getLoadedTrack();
+        if (!pTrack) {
+            continue;
+        }
+        QStringList pairs;
+        for (const QString& name : kDeckStateControls) {
+            const ConfigKey key(group, name);
+            if (ControlObject::exists(key)) {
+                pairs.append(name + QLatin1Char('=') +
+                        QString::number(ControlObject::get(key), 'g', 12));
+            }
+        }
+        const QString state = pTrack->getLocation() + QLatin1Char('|') +
+                pairs.join(QLatin1Char(';'));
+        if (m_shonLastSavedState.value(group) == state) {
+            continue;
+        }
+        m_shonLastSavedState.insert(group, state);
+        m_pConfig->setValue(ConfigKey(group, kDeckStateKey), pairs.join(QLatin1Char(';')));
+        m_pConfig->setValue(ConfigKey(group, kDeckStateLocationKey), pTrack->getLocation());
+        changed = true;
+    }
+    if (changed) {
+        m_pConfig->save();
+    }
+}
+
+void PlayerManager::shonApplyDeckState(const QString& group) {
+    const QHash<QString, double> state = m_shonPendingRestore.take(group);
+    if (state.isEmpty()) {
+        return;
+    }
+    auto setControl = [&group](const QString& name, double value) {
+        ControlProxy proxy(group, name);
+        if (proxy.valid()) {
+            proxy.set(value);
+        }
+    };
+    // Tempo and key first, so the deck sounds right before anything else.
+    for (const QString& name : {QStringLiteral("rate"),
+                 QStringLiteral("keylock"),
+                 QStringLiteral("pitch_adjust")}) {
+        if (state.contains(name)) {
+            setControl(name, state.value(name));
+        }
+    }
+    // Loop: set its boundaries, then turn it back on if it was active.
+    if (state.contains(QStringLiteral("loop_start_position")) &&
+            state.contains(QStringLiteral("loop_end_position")) &&
+            state.value(QStringLiteral("loop_end_position")) >
+                    state.value(QStringLiteral("loop_start_position"))) {
+        setControl(QStringLiteral("loop_start_position"),
+                state.value(QStringLiteral("loop_start_position")));
+        setControl(QStringLiteral("loop_end_position"),
+                state.value(QStringLiteral("loop_end_position")));
+        if (state.value(QStringLiteral("loop_enabled")) > 0.0) {
+            setControl(QStringLiteral("reloop_toggle"), 1.0);
+            setControl(QStringLiteral("reloop_toggle"), 0.0);
+        }
+    }
+    // Position, unless the track had basically finished.
+    const double position = state.value(QStringLiteral("playposition"), 0.0);
+    if (position > 0.0 && position < kDeckStateNearEnd) {
+        setControl(QStringLiteral("playposition"), position);
+    }
+    // Sync last, since turning it on can adjust the tempo.
+    if (state.value(QStringLiteral("sync_enabled")) > 0.0) {
+        setControl(QStringLiteral("sync_enabled"), 1.0);
+        if (state.value(QStringLiteral("sync_leader")) > 0.0) {
+            setControl(QStringLiteral("sync_leader"), state.value(QStringLiteral("sync_leader")));
+        }
+    }
 }
 
 void PlayerManager::loadSamplers() {

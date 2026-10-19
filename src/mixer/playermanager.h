@@ -2,9 +2,11 @@
 
 #include <gtest/gtest_prod.h>
 
+#include <QHash>
 #include <QList>
 #include <QMap>
 #include <QObject>
+#include <QTimer>
 
 #include "analyzer/trackanalysisscheduler.h"
 #include "engine/channelhandle.h"
@@ -80,6 +82,9 @@ class PlayerManager : public PlayerManagerInterface {
 
     // Load samplers from samplers.xml file in config directory
     void loadSamplers();
+
+    // Shon: reload the tracks that were on each deck last session.
+    void restoreDecks();
 
     // Add a PreviewDeck to the PlayerManager
     void addPreviewDeck();
@@ -283,6 +288,13 @@ class PlayerManager : public PlayerManagerInterface {
     mutable QT_RECURSIVE_MUTEX m_mutex;
 
     PerformanceTimer m_cloneTimer;
+
+    // Shon session restore: deck state (position, tempo, sync, key, loop).
+    void shonSaveDeckStates();
+    void shonApplyDeckState(const QString& group);
+    QTimer m_shonStateTimer;
+    QHash<QString, QHash<QString, double>> m_shonPendingRestore;
+    QHash<QString, QString> m_shonLastSavedState;
     QString m_lastLoadedPlayer;
 
     UserSettingsPointer m_pConfig;
