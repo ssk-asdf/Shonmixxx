@@ -37,6 +37,9 @@
         <file>images/heart_icon_rainbow.svg</file>
         <file>images/mixxx-icon-logo-symbolic.svg</file> <!-- default launch image -->
         <file>images/shondj-logo.png</file> <!-- Shon launch image -->
+        <file>images/shondj-icon.png</file> <!-- Shon window icon -->
+        <file>images/shondj-icon.svg</file> <!-- Shon About icon -->
+        <file>images/shondj-logo-black.svg</file> <!-- Shon About logo -->
         <file>images/mixxx-icon-logo-christmas.svg</file> <!-- christmas launch image -->
         <file>images/skin_preview_placeholder.png</file>
         <file>images/ic_checkmark.svg</file>

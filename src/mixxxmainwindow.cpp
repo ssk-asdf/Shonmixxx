@@ -1,5 +1,7 @@
 #include "mixxxmainwindow.h"
 
+#include <QLibrary>
+
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDebug>
@@ -68,6 +70,34 @@
 #ifdef __VINYLCONTROL__
 #include "vinylcontrol/vinylcontrolmanager.h"
 #endif
+
+namespace {
+// Shon window branding.
+const QString kShonWindowTitle = QStringLiteral("ShonDJ");
+const QString kShonWindowIconPath = QStringLiteral(":/images/shondj-icon.png");
+
+// Dark Windows title bar. Loaded at runtime from dwmapi.dll so no extra
+// libraries or Windows headers are needed. Does nothing on other systems.
+void shonUseDarkTitleBar(QWidget* pWidget) {
+#ifdef Q_OS_WIN
+    using SetAttributeFn = long(__stdcall*)(void*, unsigned long, const void*, unsigned long);
+    static const auto setAttribute = reinterpret_cast<SetAttributeFn>(
+            QLibrary::resolve(QStringLiteral("dwmapi"), "DwmSetWindowAttribute"));
+    if (!pWidget || !setAttribute) {
+        return;
+    }
+    constexpr unsigned long kUseImmersiveDarkMode = 20;
+    const int enabled = 1;
+    setAttribute(reinterpret_cast<void*>(pWidget->winId()),
+            kUseImmersiveDarkMode,
+            &enabled,
+            sizeof(enabled));
+#else
+    Q_UNUSED(pWidget);
+#endif
+}
+} // namespace
+
 
 namespace {
 const ConfigKey kHideMenuBarConfigKey = ConfigKey("[Config]", "hide_menubar");
@@ -309,7 +339,8 @@ void MixxxMainWindow::initialize() {
             m_pCoreServices->getEffectsManager(),
             m_pCoreServices->getSettingsManager(),
             m_pCoreServices->getLibrary());
-    m_pPrefDlg->setWindowIcon(QIcon(MIXXX_ICON_PATH));
+    m_pPrefDlg->setWindowIcon(QIcon(kShonWindowIconPath));
+    shonUseDarkTitleBar(m_pPrefDlg);
     m_pPrefDlg->setHidden(true);
     connect(m_pPrefDlg,
             &DlgPreferences::tooltipModeChanged,
@@ -580,8 +611,9 @@ void MixxxMainWindow::initializeWindow() {
                     ->getValueString(ConfigKey("[MainWindow]", "state"))
                     .toUtf8()));
 
-    setWindowIcon(QIcon(MIXXX_ICON_PATH));
+    setWindowIcon(QIcon(kShonWindowIconPath));
     slotUpdateWindowTitle(TrackPointer());
+    shonUseDarkTitleBar(this);
 }
 
 #ifndef __APPLE__
@@ -785,20 +817,14 @@ QDialog::DialogCode MixxxMainWindow::noOutputDlg(bool* continueClicked) {
 }
 
 void MixxxMainWindow::slotUpdateWindowTitle(TrackPointer pTrack) {
-    QString appTitle = VersionStore::applicationName();
+    // Shon: the title bar always just says ShonDJ, no track name.
+    // (VersionStore::applicationName() stays "Mixxx" because Mixxx uses it
+    // for the settings folder name, and changing it would hide your settings.)
     QString filePath;
-
-    // If we have a track, use getInfo() to format a summary string and prepend
-    // it to the title.
-    // TODO(rryan): Does this violate Mac App Store policies?
     if (pTrack) {
-        QString trackInfo = pTrack->getInfo();
-        if (!trackInfo.isEmpty()) {
-            appTitle = QString("%1 | %2").arg(trackInfo, appTitle);
-        }
         filePath = pTrack->getLocation();
     }
-    setWindowTitle(appTitle);
+    setWindowTitle(kShonWindowTitle);
 
     // Display a draggable proxy icon for the track in the title bar on
     // platforms that support it, e.g. macOS
