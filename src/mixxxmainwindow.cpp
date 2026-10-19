@@ -5,6 +5,7 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QFile>
 #include <QFileDialog>
 #include <QOpenGLContext>
 #include <QUrl>
@@ -95,6 +96,23 @@ void shonUseDarkTitleBar(QWidget* pWidget) {
 #else
     Q_UNUSED(pWidget);
 #endif
+}
+
+// Dark stylesheet for dialogs the skin does not cover.
+void shonApplyDarkDialogStyle(QWidget* pWidget) {
+    if (!pWidget) {
+        return;
+    }
+    static const QString style = [] {
+        QFile file(QStringLiteral(":/images/shon/dialogs.qss"));
+        if (!file.open(QIODevice::ReadOnly)) {
+            return QString();
+        }
+        return QString::fromUtf8(file.readAll());
+    }();
+    if (!style.isEmpty()) {
+        pWidget->setStyleSheet(style);
+    }
 }
 } // namespace
 
@@ -341,6 +359,7 @@ void MixxxMainWindow::initialize() {
             m_pCoreServices->getLibrary());
     m_pPrefDlg->setWindowIcon(QIcon(kShonWindowIconPath));
     shonUseDarkTitleBar(m_pPrefDlg);
+    shonApplyDarkDialogStyle(m_pPrefDlg);
     m_pPrefDlg->setHidden(true);
     connect(m_pPrefDlg,
             &DlgPreferences::tooltipModeChanged,
@@ -1256,6 +1275,9 @@ void MixxxMainWindow::slotNoAuxiliaryInputConfigured() {
 
 void MixxxMainWindow::slotHelpAbout() {
     DlgAbout* about = new DlgAbout;
+    about->setWindowIcon(QIcon(kShonWindowIconPath));
+    shonApplyDarkDialogStyle(about);
+    shonUseDarkTitleBar(about);
     about->show();
 }
 

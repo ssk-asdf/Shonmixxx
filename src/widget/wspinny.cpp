@@ -29,7 +29,7 @@ void WSpinny::draw() {
         // Shon: rotate around the center so the cover spins with the platter.
         p.save();
         p.translate(width() / 2.0, height() / 2.0);
-        p.rotate(m_fAngle);
+        p.rotate(m_fCoverAngle);
         p.drawPixmap(QPointF(-m_loadedCoverScaled.width() / scaleFactor / 2.0,
                              -m_loadedCoverScaled.height() / scaleFactor / 2.0),
                 m_loadedCoverScaled);

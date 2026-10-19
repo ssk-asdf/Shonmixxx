@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QDir>
+#include <QPalette>
 #include <QPixmapCache>
 #include <QString>
 #include <QStringList>
@@ -194,6 +195,39 @@ void applyStyleOverride(CmdlineArgs* pArgs) {
     }
 }
 
+// ShonDJ: dark palette for everything the skin does not style
+// (Preferences, About, message boxes).
+void applyShonDarkPalette() {
+    QPalette pal;
+    const QColor window(0x15, 0x15, 0x17);
+    const QColor base(0x1c, 0x1c, 0x1f);
+    const QColor text(0xe6, 0xe6, 0xe6);
+    const QColor dim(0x6a, 0x6a, 0x70);
+    pal.setColor(QPalette::Window, window);
+    pal.setColor(QPalette::WindowText, text);
+    pal.setColor(QPalette::Base, base);
+    pal.setColor(QPalette::AlternateBase, QColor(0x20, 0x20, 0x24));
+    pal.setColor(QPalette::Text, text);
+    pal.setColor(QPalette::Button, QColor(0x26, 0x26, 0x2b));
+    pal.setColor(QPalette::ButtonText, text);
+    pal.setColor(QPalette::BrightText, Qt::white);
+    pal.setColor(QPalette::Highlight, QColor(0x2f, 0x6b, 0xff));
+    pal.setColor(QPalette::HighlightedText, Qt::white);
+    pal.setColor(QPalette::ToolTipBase, QColor(0x22, 0x22, 0x26));
+    pal.setColor(QPalette::ToolTipText, text);
+    pal.setColor(QPalette::PlaceholderText, QColor(0x77, 0x77, 0x7c));
+    pal.setColor(QPalette::Link, QColor(0x5a, 0x8d, 0xff));
+    pal.setColor(QPalette::Light, QColor(0x3a, 0x3a, 0x40));
+    pal.setColor(QPalette::Midlight, QColor(0x2e, 0x2e, 0x34));
+    pal.setColor(QPalette::Mid, QColor(0x2a, 0x2a, 0x2e));
+    pal.setColor(QPalette::Dark, QColor(0x10, 0x10, 0x12));
+    pal.setColor(QPalette::Shadow, Qt::black);
+    pal.setColor(QPalette::Disabled, QPalette::WindowText, dim);
+    pal.setColor(QPalette::Disabled, QPalette::Text, dim);
+    pal.setColor(QPalette::Disabled, QPalette::ButtonText, dim);
+    QApplication::setPalette(pal);
+}
+
 } // anonymous namespace
 
 #ifdef Q_OS_ANDROID
@@ -280,6 +314,7 @@ int main(int argc, char * argv[]) {
 #endif
 
     applyStyleOverride(&args);
+    applyShonDarkPalette();
 
     qInfo() << "Selected Qt style:" << QApplication::style()->objectName();
 

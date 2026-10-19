@@ -137,6 +137,7 @@ class WSpinnyBase : public WGLWidget,
     int m_iVinylScopeSize;
 
     float m_fAngle; // Degrees
+    float m_fCoverAngle; // Shon: record and label turn slower than the needle
     double m_dAngleCurrentPlaypos;
     double m_dAngleLastPlaypos;
     float m_fGhostAngle;

@@ -1,6 +1,10 @@
 #include "widget/wspinnybase.h"
 
 #include <QApplication>
+#include <algorithm>
+#include <QPainter>
+#include <QPainterPath>
+#include <QRadialGradient>
 #include <QtDebug>
 
 #include "control/controlproxy.h"
@@ -49,6 +53,7 @@ WSpinnyBase::WSpinnyBase(
           m_bDrawVinylSignalQuality(false),
           m_iVinylScopeSize(0),
           m_fAngle(0.0f),
+          m_fCoverAngle(0.0f),
           m_dAngleCurrentPlaypos(-1),
           m_dAngleLastPlaypos(-1),
           m_fGhostAngle(0.0f),
@@ -223,9 +228,81 @@ void WSpinnyBase::setup(const QDomNode& node,
     updateVinylControlSpeed(33.0);
 }
 
+
+namespace {
+// Shon: turn album art into a vinyl record. Black disc with faint grooves,
+// the art cropped into a circular center label, and a spindle hole.
+// The whole record rotates with the platter.
+QPixmap shonMakeRecord(const QPixmap& cover, const QSize& widgetSize, qreal dpr) {
+    if (cover.isNull() || widgetSize.isEmpty()) {
+        return QPixmap();
+    }
+    const int side = static_cast<int>(
+            std::min(widgetSize.width(), widgetSize.height()) * dpr);
+    if (side <= 0) {
+        return QPixmap();
+    }
+    QPixmap record(side, side);
+    record.fill(Qt::transparent);
+    QPainter p(&record);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    const QPointF center(side / 2.0, side / 2.0);
+    const double radius = side / 2.0;
+
+    // Vinyl disc.
+    QRadialGradient vinyl(center, radius);
+    vinyl.setColorAt(0.0, QColor(22, 22, 24));
+    vinyl.setColorAt(1.0, QColor(10, 10, 11));
+    p.setPen(Qt::NoPen);
+    p.setBrush(vinyl);
+    p.drawEllipse(center, radius, radius);
+
+    // Grooves.
+    const double labelRadius = radius * 0.40;
+    const double grooveStep = std::max(radius / 45.0, 1.5 * dpr);
+    p.setBrush(Qt::NoBrush);
+    int ring = 0;
+    for (double r = labelRadius + grooveStep * 1.5; r < radius * 0.97;
+            r += grooveStep, ++ring) {
+        p.setPen(QPen(QColor(255, 255, 255, ring % 3 == 0 ? 16 : 8), 1.0 * dpr));
+        p.drawEllipse(center, r, r);
+    }
+
+    // Center label: a circle cropped from the middle of the album art.
+    const int coverSide = std::min(cover.width(), cover.height());
+    const QRect cropRect((cover.width() - coverSide) / 2,
+            (cover.height() - coverSide) / 2,
+            coverSide,
+            coverSide);
+    const QRectF labelRect(center.x() - labelRadius,
+            center.y() - labelRadius,
+            labelRadius * 2,
+            labelRadius * 2);
+    QPainterPath labelClip;
+    labelClip.addEllipse(labelRect);
+    p.save();
+    p.setClipPath(labelClip);
+    p.drawPixmap(labelRect, cover, QRectF(cropRect));
+    p.restore();
+    p.setPen(QPen(QColor(0, 0, 0, 140), 1.5 * dpr));
+    p.drawEllipse(center, labelRadius, labelRadius);
+
+    // Spindle hole.
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(8, 8, 9));
+    p.drawEllipse(center, radius * 0.03, radius * 0.03);
+    p.end();
+
+    record.setDevicePixelRatio(dpr);
+    return record;
+}
+} // namespace
+
 void WSpinnyBase::setLoadedCover(const QPixmap& pixmap) {
     m_loadedCover = pixmap;
-    m_loadedCoverScaled = scaleToSize(pixmap);
+    m_loadedCoverScaled = shonMakeRecord(pixmap, size(), devicePixelRatioF());
 }
 
 void WSpinnyBase::slotLoadTrack(TrackPointer pTrack) {
@@ -317,6 +394,10 @@ void WSpinnyBase::render(VSyncThread* vSyncThread) {
 
     if (m_dAngleCurrentPlaypos != m_dAngleLastPlaypos) {
         m_fAngle = static_cast<float>(calculateAngle(m_dAngleCurrentPlaypos));
+        // Shon: the record turns at a fifth of the needle speed.
+        constexpr double kShonCoverSpeed = 0.2;
+        m_fCoverAngle = static_cast<float>(
+                calculateAngle(m_dAngleCurrentPlaypos * kShonCoverSpeed));
         m_dAngleLastPlaypos = m_dAngleCurrentPlaypos;
     }
 
@@ -364,7 +445,7 @@ QPixmap WSpinnyBase::scaleToSize(const QPixmap& pixmap) const {
 }
 
 void WSpinnyBase::resizeEvent(QResizeEvent* event) {
-    m_loadedCoverScaled = scaleToSize(m_loadedCover);
+    m_loadedCoverScaled = shonMakeRecord(m_loadedCover, size(), devicePixelRatioF());
     m_fgImageScaled = scaleToSize(m_pFgImage);
     m_ghostImageScaled = scaleToSize(m_pGhostImage);
 

@@ -40,6 +40,11 @@
         <file>images/shondj-icon.png</file> <!-- Shon window icon -->
         <file>images/shondj-icon.svg</file> <!-- Shon About icon -->
         <file>images/shondj-logo-black.svg</file> <!-- Shon About logo -->
+        <file>images/shon/dialogs.qss</file> <!-- Shon dark dialogs -->
+        <file>images/shon/arrow_down.svg</file>
+        <file>images/shon/arrow_up.svg</file>
+        <file>images/shon/check.svg</file>
+        <file>images/shon/radio_dot.svg</file>
         <file>images/mixxx-icon-logo-christmas.svg</file> <!-- christmas launch image -->
         <file>images/skin_preview_placeholder.png</file>
         <file>images/ic_checkmark.svg</file>
