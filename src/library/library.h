@@ -4,6 +4,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QTimer>
 
 #include "analyzer/trackanalysisscheduler.h"
 #include "library/library_decl.h"
@@ -185,6 +186,10 @@ class Library: public QObject {
       /// the one the crowd hears. Refreshes when the playing track changes.
       void slotShonToggleMatches(double value);
       void slotShonPlayingTrackChanged(TrackPointer pTrack);
+      /// Shon Away Mode: fills Auto DJ with tracks that chain well from the
+      /// one playing, turns Auto DJ on, and keeps the queue topped up.
+      void slotShonToggleAwayMode(double value);
+      void slotShonAwayTopUp();
       void onPlayerManagerTrackAnalyzerIdle();
 
   private:
@@ -213,5 +218,8 @@ class Library: public QObject {
     std::unique_ptr<ControlObject> m_pKeyNotation;
     std::unique_ptr<ControlObject> m_pShonShowMatches;
     bool m_shonMatchesActive = false;
+    std::unique_ptr<ControlObject> m_pShonAwayMode;
+    QTimer* m_pShonAwayTimer = nullptr;
+    void shonAwayAddTracks(int count);
     void shonApplyMatchesFilter(TrackPointer pTrack);
 };

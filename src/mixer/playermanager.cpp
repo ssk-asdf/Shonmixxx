@@ -1,11 +1,14 @@
 #include "mixer/playermanager.h"
 
+#include <QDateTime>
+#include <algorithm>
 #include <QFile>
 #include <QRegularExpression>
 
 #include "audio/types.h"
 #include "control/controlobject.h"
 #include "control/controlproxy.h"
+#include "control/controlpushbutton.h"
 #include "effects/effectsmanager.h"
 #include "engine/channels/enginedeck.h"
 #include "engine/enginemixer.h"
@@ -14,6 +17,7 @@
 #include "mixer/auxiliary.h"
 #include "mixer/deck.h"
 #include "mixer/microphone.h"
+#include "mixer/playerinfo.h"
 #include "mixer/previewdeck.h"
 #include "mixer/sampler.h"
 #include "mixer/samplerbank.h"
@@ -402,6 +406,9 @@ void PlayerManager::addDeckInner() {
                 m_pConfig->setValue(ConfigKey(pDeck->getGroup(), kRestoreDeckKey),
                         pTrack->getLocation());
                 m_pConfig->save();
+                // Gain sync: re-match loudness for the new track once the
+                // load-time gain reset has happened.
+                shonApplyGainSyncAfterLoad(pDeck->getGroup());
                 // Restoring after startup: apply saved position, tempo, sync.
                 // Short delay so the track finishes its own load seek first.
                 const QString group = pDeck->getGroup();
@@ -417,6 +424,8 @@ void PlayerManager::addDeckInner() {
                     });
                 }
             });
+    shonSetupGainSync(pDeck);
+
     connect(pDeck,
             &BaseTrackPlayer::playerEmpty,
             this,
@@ -467,6 +476,84 @@ void PlayerManager::addDeckInner() {
 
     // Setup EQ ControlProxies used for resetting EQs on track load
     pDeck->setupEqControls();
+}
+
+void PlayerManager::shonSetupGainSync(Deck* pDeck) {
+    const QString group = pDeck->getGroup();
+    auto* pButton = new ControlPushButton(
+            ConfigKey(group, QStringLiteral("shon_gain_sync")));
+    pButton->setButtonMode(mixxx::control::ButtonMode::Toggle);
+    pButton->setParent(this);
+    m_shonGainSyncButtons.insert(group, pButton);
+    connect(pButton, &ControlObject::valueChanged, this, [this, group](double value) {
+        if (value > 0.0) {
+            shonApplyGainSync(group);
+        }
+    });
+    // Turning the gain knob by hand turns gain sync off, except right after
+    // a track load when Mixxx may reset the gain itself.
+    auto* pPregain = new ControlProxy(group, QStringLiteral("pregain"), this);
+    pPregain->connectValueChanged(this, [this, group](double) {
+        if (m_shonSettingGain) {
+            return;
+        }
+        if (QDateTime::currentMSecsSinceEpoch() <
+                m_shonGainSyncIgnoreUntilMs.value(group, 0)) {
+            return;
+        }
+        ControlObject* pButton = m_shonGainSyncButtons.value(group);
+        if (pButton && pButton->get() > 0.0) {
+            pButton->set(0.0);
+        }
+    });
+}
+
+void PlayerManager::shonApplyGainSyncAfterLoad(const QString& group) {
+    ControlObject* pButton = m_shonGainSyncButtons.value(group);
+    if (!pButton || pButton->get() <= 0.0) {
+        return;
+    }
+    m_shonGainSyncIgnoreUntilMs.insert(group, QDateTime::currentMSecsSinceEpoch() + 1500);
+    QTimer::singleShot(300, this, [this, group]() {
+        shonApplyGainSync(group);
+    });
+}
+
+void PlayerManager::shonApplyGainSync(const QString& group) {
+    // Reference: the deck the crowd hears, if it is a different deck.
+    const int referenceDeck = PlayerInfo::instance().getCurrentPlayingDeck();
+    if (referenceDeck < 0) {
+        return;
+    }
+    const QString referenceGroup = groupForDeck(referenceDeck);
+    if (referenceGroup == group) {
+        return;
+    }
+    const double trackRatio =
+            ControlObject::get(ConfigKey(group, QStringLiteral("replaygain")));
+    const double referenceRatio =
+            ControlObject::get(ConfigKey(referenceGroup, QStringLiteral("replaygain")));
+    const double referencePregain =
+            ControlObject::get(ConfigKey(referenceGroup, QStringLiteral("pregain")));
+
+    double pregain = referencePregain;
+    const bool replayGainEnabled = ControlObject::toBool(
+            ConfigKey(QStringLiteral("[ReplayGain]"), QStringLiteral("ReplayGainEnabled")));
+    if (!replayGainEnabled) {
+        // Mixxx is not leveling tracks, so scale by the ratio of the two
+        // tracks' measured loudness corrections.
+        if (trackRatio <= 0.0 || referenceRatio <= 0.0) {
+            return; // loudness not analyzed yet
+        }
+        pregain = referencePregain * trackRatio / referenceRatio;
+    }
+    // Gain knob range is -12 dB to +12 dB.
+    pregain = std::clamp(pregain, 0.25, 3.98);
+
+    m_shonSettingGain = true;
+    ControlProxy proxy(group, QStringLiteral("pregain"));
+    proxy.set(pregain);
+    m_shonSettingGain = false;
 }
 
 void PlayerManager::restoreDecks() {

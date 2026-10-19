@@ -3,6 +3,11 @@
 #include <QApplication>
 #include <QDir>
 #include <QMessageBox>
+#include <QRandomGenerator>
+#include <QSet>
+#include <QSqlQuery>
+#include <algorithm>
+#include <cmath>
 
 #include "control/controlobject.h"
 #include "controllers/keyboard/keyboardeventfilter.h"
@@ -31,8 +36,10 @@
 #include "library/trackset/crate/cratefeature.h"
 #include "library/trackset/playlistfeature.h"
 #include "library/trackset/setlogfeature.h"
+#include "library/dao/trackschema.h"
 #include "library/traktor/traktorfeature.h"
 #include "mixer/playerinfo.h"
+#include "control/controlproxy.h"
 #include "control/controlpushbutton.h"
 #include "mixer/playermanager.h"
 #include "track/keyutils.h"
@@ -282,6 +289,25 @@ Library::Library(
             &PlayerInfo::currentPlayingTrackChanged,
             this,
             &Library::slotShonPlayingTrackChanged);
+
+    m_pShonAwayMode = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("shon_away_mode")));
+    static_cast<ControlPushButton*>(m_pShonAwayMode.get())
+            ->setButtonMode(mixxx::control::ButtonMode::Toggle);
+    connect(m_pShonAwayMode.get(),
+            &ControlObject::valueChanged,
+            this,
+            &Library::slotShonToggleAwayMode);
+    m_pShonAwayTimer = new QTimer(this);
+    connect(m_pShonAwayTimer, &QTimer::timeout, this, &Library::slotShonAwayTopUp);
+    // If Auto DJ gets turned off some other way, Away Mode turns off too.
+    auto* pAutoDjEnabled = new ControlProxy(
+            QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"), this);
+    pAutoDjEnabled->connectValueChanged(this, [this](double value) {
+        if (value <= 0.0 && m_pShonAwayMode->get() > 0.0) {
+            m_pShonAwayMode->set(0.0);
+        }
+    });
 }
 
 void Library::slotShonToggleMatches(double value) {
@@ -302,6 +328,206 @@ void Library::slotShonPlayingTrackChanged(TrackPointer pTrack) {
     // last results when nothing is playing.
     if (m_shonMatchesActive && pTrack) {
         shonApplyMatchesFilter(pTrack);
+    }
+}
+
+namespace {
+// Shon Away Mode tuning.
+constexpr int kShonAwayInitialTracks = 12;
+constexpr int kShonAwayTopUpBelow = 4;
+constexpr int kShonAwayTopUpTracks = 8;
+constexpr int kShonAwayCheckIntervalMs = 20000;
+
+struct ShonTrackInfo {
+    qlonglong id = -1;
+    double bpm = 0.0;
+    int key = 0;
+    int energy = 0;
+    bool prepped = false;
+};
+
+double shonBpmDiff(double bpm, double referenceBpm) {
+    double diff = 1.0;
+    for (const double factor : {1.0, 0.5, 2.0}) {
+        diff = std::min(diff, std::abs(bpm * factor - referenceBpm) / referenceBpm);
+    }
+    return diff;
+}
+
+// Score how well candidate follows reference. Negative means "don't".
+// strict = BPM within 6% and compatible key; relaxed = BPM within 10%.
+double shonChainScore(const ShonTrackInfo& reference,
+        const ShonTrackInfo& candidate,
+        bool strict) {
+    if (reference.bpm <= 0.0 || candidate.bpm <= 0.0) {
+        return -1.0;
+    }
+    const double bpmDiff = shonBpmDiff(candidate.bpm, reference.bpm);
+    if (bpmDiff > (strict ? 0.06 : 0.10)) {
+        return -1.0;
+    }
+    const auto referenceKey = static_cast<mixxx::track::io::key::ChromaticKey>(reference.key);
+    if (strict && referenceKey != mixxx::track::io::key::INVALID && candidate.key != 0) {
+        const auto compatible = KeyUtils::getCompatibleKeys(referenceKey);
+        if (!compatible.contains(
+                    static_cast<mixxx::track::io::key::ChromaticKey>(candidate.key))) {
+            return -1.0;
+        }
+    }
+    double score = 100.0;
+    // Keep the room steady: same energy best, one up or down is fine.
+    if (reference.energy <= 0 || candidate.energy <= 0) {
+        score += 25.0;
+    } else if (candidate.energy == reference.energy) {
+        score += 50.0;
+    } else if (candidate.energy == reference.energy + 1) {
+        score += 40.0;
+    } else if (candidate.energy == reference.energy - 1) {
+        score += 30.0;
+    }
+    if (candidate.prepped) {
+        score += 30.0;
+    }
+    score -= bpmDiff * 200.0;
+    // A little variety so Away Mode doesn't play the same chain every time.
+    score += QRandomGenerator::global()->bounded(8.0);
+    return score;
+}
+} // namespace
+
+void Library::slotShonToggleAwayMode(double value) {
+    ControlProxy autoDjEnabled(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"));
+    if (value > 0.0) {
+        shonAwayAddTracks(kShonAwayInitialTracks);
+        autoDjEnabled.set(1.0);
+        if (autoDjEnabled.get() <= 0.0) {
+            // Auto DJ refused (for example both decks are playing). Its own
+            // message explains why; turn Away Mode back off to match.
+            m_pShonAwayMode->set(0.0);
+            return;
+        }
+        m_pShonAwayTimer->start(kShonAwayCheckIntervalMs);
+    } else {
+        m_pShonAwayTimer->stop();
+        if (autoDjEnabled.get() > 0.0) {
+            autoDjEnabled.set(0.0);
+        }
+    }
+}
+
+void Library::slotShonAwayTopUp() {
+    if (!m_pTrackCollectionManager) {
+        return;
+    }
+    PlaylistDAO& playlistDao = m_pTrackCollectionManager->internalCollection()->getPlaylistDAO();
+    const int autoDjId = playlistDao.getPlaylistIdFromName(AUTODJ_TABLE);
+    if (autoDjId >= 0 && playlistDao.tracksInPlaylist(autoDjId) < kShonAwayTopUpBelow) {
+        shonAwayAddTracks(kShonAwayTopUpTracks);
+    }
+}
+
+void Library::shonAwayAddTracks(int count) {
+    if (!m_pTrackCollectionManager) {
+        return;
+    }
+    TrackCollection* pCollection = m_pTrackCollectionManager->internalCollection();
+    PlaylistDAO& playlistDao = pCollection->getPlaylistDAO();
+    const int autoDjId = playlistDao.getPlaylistIdFromName(AUTODJ_TABLE);
+    if (autoDjId < 0) {
+        return;
+    }
+    const QSqlDatabase database = pCollection->database();
+
+    // Tracks with both an IN and an OUT cue label count as prepped.
+    QSet<qlonglong> preppedIds;
+    {
+        QSqlQuery query(database);
+        if (query.exec(QStringLiteral(
+                    "SELECT track_id FROM cues WHERE upper(label) IN ('IN', 'OUT') "
+                    "GROUP BY track_id HAVING COUNT(DISTINCT upper(label)) = 2"))) {
+            while (query.next()) {
+                preppedIds.insert(query.value(0).toLongLong());
+            }
+        }
+    }
+
+    // Skip anything queued, loaded on a deck, or already played this session.
+    QSet<qlonglong> excluded;
+    const QList<TrackId> queued = playlistDao.getTrackIdsInPlaylistOrder(autoDjId);
+    for (const TrackId& id : queued) {
+        excluded.insert(id.toVariant().toLongLong());
+    }
+    for (int deck = 0; deck < PlayerInfo::instance().numDecks(); ++deck) {
+        TrackPointer pLoaded = PlayerInfo::instance().getTrackInfo(
+                PlayerManager::groupForDeck(deck));
+        if (pLoaded) {
+            excluded.insert(pLoaded->getId().toVariant().toLongLong());
+        }
+    }
+
+    QList<ShonTrackInfo> candidates;
+    QHash<qlonglong, ShonTrackInfo> byId;
+    {
+        QSqlQuery query(database);
+        if (!query.exec(QStringLiteral(
+                    "SELECT id, bpm, key_id, rating, played FROM library "
+                    "WHERE mixxx_deleted = 0 AND bpm > 0"))) {
+            return;
+        }
+        while (query.next()) {
+            ShonTrackInfo info;
+            info.id = query.value(0).toLongLong();
+            info.bpm = query.value(1).toDouble();
+            info.key = query.value(2).toInt();
+            info.energy = query.value(3).toInt();
+            info.prepped = preppedIds.contains(info.id);
+            byId.insert(info.id, info);
+            if (query.value(4).toInt() == 0 && !excluded.contains(info.id)) {
+                candidates.append(info);
+            }
+        }
+    }
+
+    // Chain from the last queued track, or from what's playing.
+    ShonTrackInfo reference;
+    if (!queued.isEmpty()) {
+        reference = byId.value(queued.last().toVariant().toLongLong());
+    }
+    if (reference.bpm <= 0.0) {
+        TrackPointer pPlaying = PlayerInfo::instance().getCurrentPlayingTrack();
+        if (!pPlaying || pPlaying->getBpm() <= 0.0) {
+            return;
+        }
+        reference.id = pPlaying->getId().toVariant().toLongLong();
+        reference.bpm = pPlaying->getBpm();
+        reference.key = static_cast<int>(pPlaying->getKey());
+        reference.energy = pPlaying->getRating();
+    }
+
+    QList<TrackId> picks;
+    for (int i = 0; i < count && !candidates.isEmpty(); ++i) {
+        int bestIndex = -1;
+        double bestScore = -1.0;
+        for (const bool strict : {true, false}) {
+            for (int c = 0; c < candidates.size(); ++c) {
+                const double score = shonChainScore(reference, candidates.at(c), strict);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIndex = c;
+                }
+            }
+            if (bestIndex >= 0) {
+                break;
+            }
+        }
+        if (bestIndex < 0) {
+            break; // nothing left that mixes
+        }
+        reference = candidates.takeAt(bestIndex);
+        picks.append(TrackId(QVariant(reference.id)));
+    }
+    if (!picks.isEmpty()) {
+        playlistDao.appendTracksToPlaylist(picks, autoDjId);
     }
 }
 

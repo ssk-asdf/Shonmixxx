@@ -295,6 +295,16 @@ class PlayerManager : public PlayerManagerInterface {
     QTimer m_shonStateTimer;
     QHash<QString, QHash<QString, double>> m_shonPendingRestore;
     QHash<QString, QString> m_shonLastSavedState;
+
+    // Shon gain sync: per-deck toggle that matches this deck's loudness to
+    // the deck the crowd hears. Moving the gain knob turns it off, like the
+    // tempo sync button.
+    void shonSetupGainSync(Deck* pDeck);
+    void shonApplyGainSync(const QString& group);
+    void shonApplyGainSyncAfterLoad(const QString& group);
+    QHash<QString, ControlObject*> m_shonGainSyncButtons;
+    QHash<QString, qint64> m_shonGainSyncIgnoreUntilMs;
+    bool m_shonSettingGain = false;
     QString m_lastLoadedPlayer;
 
     UserSettingsPointer m_pConfig;

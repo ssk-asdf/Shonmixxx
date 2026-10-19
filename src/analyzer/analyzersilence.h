@@ -4,6 +4,8 @@
 #include "preferences/usersettings.h"
 #include "util/span.h"
 
+#include <vector>
+
 class AnalyzerTrack;
 class Track;
 
@@ -51,7 +53,18 @@ class AnalyzerSilence : public Analyzer {
             mixxx::audio::ChannelCount channelCount);
 
   private:
+    /// Shon auto cues: suggests IN, DROP, BREAK, and OUT hot cues from the
+    /// low-frequency energy of the track, snapped to the beatgrid.
+    void shonPlaceAutoCues(Track* pTrack) const;
+
     UserSettingsPointer m_pConfig;
+    bool m_doSilenceAnalysis;
+    bool m_wantAutoCues;
+    double m_sampleRate;
+    float m_lowpassState;
+    double m_blockEnergySum;
+    SINT m_blockFrames;
+    std::vector<float> m_blockEnergy; // mean low-band energy per block
     mixxx::audio::ChannelCount m_channelCount;
     SINT m_framesProcessed;
     SINT m_signalStart;
