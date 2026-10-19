@@ -3,6 +3,7 @@
 #include <qlogging.h>
 
 #include <QLibrary>
+#include <QStringList>
 #include <QThread>
 #include <QtGlobal>
 #include <cstring> // for memcpy and strcmp
@@ -46,6 +47,87 @@ struct DeviceMode {
 #ifdef __LINUX__
 constexpr unsigned int kSleepSecondsAfterClosingDevice = 5;
 #endif
+
+// ShonDJ auto audio setup.
+const ConfigKey kShonAudioAutoKey(QStringLiteral("[Shon]"), QStringLiteral("audio_auto"));
+const ConfigKey kShonAudioAutoSigKey(
+        QStringLiteral("[Shon]"), QStringLiteral("audio_auto_signature"));
+const ConfigKey kShonAudioManualKey(QStringLiteral("[Shon]"), QStringLiteral("audio_manual"));
+const ConfigKey kShonAudioManualSigKey(
+        QStringLiteral("[Shon]"), QStringLiteral("audio_manual_signature"));
+
+// API plus every output route, so two configs can be compared.
+QString shonConfigSignature(const SoundManagerConfig& config) {
+    QStringList parts;
+    const auto outputs = config.getOutputs();
+    for (auto it = outputs.constBegin(); it != outputs.constEnd(); ++it) {
+        parts << it.key().debugName() + QLatin1Char('=') + it.value().getString();
+    }
+    parts.sort();
+    return config.getAPI() + QLatin1Char('|') + parts.join(QLatin1Char(';'));
+}
+
+// How likely a device is a DJ controller or DJ sound card.
+// 0 means skip, higher is better.
+int shonDjDeviceScore(const QString& name, int outputChannels) {
+    if (outputChannels < 4) {
+        return 0;
+    }
+    const QString lower = name.toLower();
+    static const char* const kSkip[] = {"realtek",
+            "hdmi",
+            "nvidia",
+            "amd ",
+            "intel",
+            "display",
+            "high definition audio",
+            "asio4all",
+            "flexasio",
+            "generic low latency",
+            "voicemeeter",
+            "virtual",
+            "steam",
+            "oculus",
+            "digital output",
+            "spdif",
+            "s/pdif",
+            "microsoft",
+            "bluetooth"};
+    for (const char* pSkip : kSkip) {
+        if (lower.contains(QLatin1String(pSkip))) {
+            return 0;
+        }
+    }
+    static const char* const kDj[] = {"ddj",
+            "xdj",
+            "pioneer",
+            "alphatheta",
+            "numark",
+            "mixtrack",
+            "party mix",
+            "traktor",
+            "kontrol",
+            "native instruments",
+            "hercules",
+            "djcontrol",
+            "inpulse",
+            "rane",
+            "denon",
+            "reloop",
+            "roland",
+            "serato",
+            "audio 2",
+            "audio 4",
+            "audio 6",
+            "audio 10",
+            "dj"};
+    for (const char* pDj : kDj) {
+        if (lower.contains(QLatin1String(pDj))) {
+            return 2;
+        }
+    }
+    return 1;
+}
 } // anonymous namespace
 
 SoundManager::SoundManager(
@@ -536,8 +618,196 @@ SoundDeviceStatus SoundManager::setConfig(const SoundManagerConfig& config) {
     status = setupDevices();
     if (status == SoundDeviceStatus::Ok) {
         m_config.writeToDisk();
+        if (!m_shonApplying) {
+            // Set by hand in Preferences. Auto setup leaves it alone until
+            // one of these devices goes away.
+            const QString signature = shonConfigSignature(m_config);
+            const bool manual = signature !=
+                    m_pConfig->getValueString(kShonAudioAutoSigKey);
+            m_pConfig->setValue(kShonAudioManualKey, manual ? 1 : 0);
+            m_pConfig->set(kShonAudioManualSigKey, ConfigValue(signature));
+        }
     }
     return status;
+}
+
+SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool laptopOnly) {
+    SoundManagerConfig config = m_config;
+    const QList<QString> apis = getHostAPIList();
+
+    SoundDevicePointer pBest;
+    QString bestApi;
+    if (!laptopOnly) {
+        // Low latency APIs first.
+        QStringList order = {SoundManagerConfig::kAPIAsio,
+                QStringLiteral("Windows WASAPI"),
+                SoundManagerConfig::kAPIDirectSound,
+                QStringLiteral("MME"),
+                SoundManagerConfig::kAPICoreAudio,
+                SoundManagerConfig::kAPIJack,
+                SoundManagerConfig::kAPIAlsa};
+        for (const auto& api : apis) {
+            if (!order.contains(api)) {
+                order << api;
+            }
+        }
+        int bestScore = 0;
+        for (const auto& api : std::as_const(order)) {
+            if (!apis.contains(api)) {
+                continue;
+            }
+            const QList<SoundDevicePointer> devices = getDeviceList(api, true, false);
+            for (const auto& pDevice : devices) {
+                const int score = shonDjDeviceScore(pDevice->getDisplayName(),
+                        static_cast<int>(pDevice->getNumOutputChannels().value()));
+                if (score > bestScore) {
+                    bestScore = score;
+                    pBest = pDevice;
+                    bestApi = api;
+                }
+            }
+        }
+    }
+
+    if (pBest) {
+        // DJ controller or sound card: Main on 1-2, Headphones on 3-4.
+        config.setAPI(bestApi);
+        config.clearOutputs();
+        config.clearInputs();
+        config.addOutput(pBest->getDeviceId(),
+                AudioOutput(AudioPathType::Main,
+                        0,
+                        mixxx::audio::ChannelCount::stereo(),
+                        0));
+        config.addOutput(pBest->getDeviceId(),
+                AudioOutput(AudioPathType::Headphones,
+                        2,
+                        mixxx::audio::ChannelCount::stereo(),
+                        0));
+        const QList<mixxx::audio::SampleRate> rates = getSampleRates(bestApi);
+        const mixxx::audio::SampleRate deviceRate = pBest->getDefaultSampleRate();
+        if (rates.contains(deviceRate)) {
+            config.setSampleRate(deviceRate);
+        } else if (!rates.isEmpty() && !rates.contains(config.getSampleRate())) {
+            config.setSampleRate(rates.first());
+        }
+        if (pDescription) {
+            *pDescription = QStringLiteral("Audio: %1 (Main 1-2, Headphones 3-4)")
+                                    .arg(pBest->getDisplayName());
+        }
+        return config;
+    }
+
+    // Laptop only: Main on the system output, no headphone cue.
+#ifdef __WINDOWS__
+    if (apis.contains(SoundManagerConfig::kAPIDirectSound)) {
+        config.setAPI(SoundManagerConfig::kAPIDirectSound);
+        config.loadDefaults(this, SoundManagerConfig::DEVICES | SoundManagerConfig::OTHER);
+    } else {
+        config.loadDefaults(this,
+                SoundManagerConfig::API | SoundManagerConfig::DEVICES |
+                        SoundManagerConfig::OTHER);
+    }
+#else
+    config.loadDefaults(this,
+            SoundManagerConfig::API | SoundManagerConfig::DEVICES |
+                    SoundManagerConfig::OTHER);
+#endif
+    if (pDescription) {
+        QString name;
+        const auto outputs = config.getOutputs();
+        if (!outputs.isEmpty()) {
+            name = outputs.constBegin().key().name;
+        }
+        *pDescription = name.isEmpty()
+                ? QStringLiteral("Audio: no output found")
+                : QStringLiteral("Audio: %1 (laptop mode, no headphone cue)").arg(name);
+    }
+    return config;
+}
+
+bool SoundManager::shonConfigDevicesExist(const SoundManagerConfig& config) const {
+    const auto outputs = config.getOutputs();
+    if (outputs.isEmpty()) {
+        return false;
+    }
+    const QList<SoundDevicePointer> devices = getDeviceList(config.getAPI(), true, true);
+    for (auto it = outputs.constBegin(); it != outputs.constEnd(); ++it) {
+        bool found = false;
+        for (const auto& pDevice : devices) {
+            if (pDevice->getDeviceId() == it.key()) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void SoundManager::shonRememberAutoConfig() {
+    m_pConfig->set(kShonAudioAutoSigKey, ConfigValue(shonConfigSignature(m_config)));
+    m_pConfig->setValue(kShonAudioManualKey, 0);
+}
+
+QString SoundManager::shonAutoConfigureAtStartup() {
+    if (!m_pConfig->getValue(kShonAudioAutoKey, true) || isPipewireSelected()) {
+        return QString();
+    }
+    const QString current = shonConfigSignature(m_config);
+    if (m_pConfig->getValue(kShonAudioManualKey, false) &&
+            current == m_pConfig->getValueString(kShonAudioManualSigKey)) {
+        // Hand picked setup is still there, keep it.
+        return QString();
+    }
+    QString description;
+    const SoundManagerConfig config = shonBuildAutoConfig(&description, false);
+    const bool changed = shonConfigSignature(config) != current;
+    if (changed) {
+        m_config = config;
+        checkConfig();
+        m_config.writeToDisk();
+    }
+    shonRememberAutoConfig();
+    return changed ? description : QString();
+}
+
+QString SoundManager::shonHandleDeviceChange() {
+    if (!m_pConfig->getValue(kShonAudioAutoKey, true) || isPipewireSelected()) {
+        return QString();
+    }
+    const QString before = shonConfigSignature(m_config);
+
+    // PortAudio only sees new devices after a restart of its device list.
+    closeDevices(false);
+    m_pErrorDevice.clear();
+    m_pEnumerator->deinitialize();
+    m_pEnumerator->initialize();
+    emit devicesUpdated();
+
+    if (m_pConfig->getValue(kShonAudioManualKey, false) && shonConfigDevicesExist(m_config)) {
+        // Hand picked devices are all still here, just reopen them.
+        setupDevices();
+        return QString();
+    }
+
+    QString description;
+    SoundManagerConfig config = shonBuildAutoConfig(&description, false);
+    m_shonApplying = true;
+    SoundDeviceStatus status = setConfig(config);
+    if (status != SoundDeviceStatus::Ok) {
+        // Could not open the DJ device, fall back to the laptop output.
+        config = shonBuildAutoConfig(&description, true);
+        status = setConfig(config);
+    }
+    m_shonApplying = false;
+    if (status != SoundDeviceStatus::Ok) {
+        return QStringLiteral("Audio: could not open a device, check Preferences > Sound Hardware");
+    }
+    shonRememberAutoConfig();
+    return shonConfigSignature(m_config) != before ? description : QString();
 }
 
 void SoundManager::checkConfig() {

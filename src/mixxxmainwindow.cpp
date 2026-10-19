@@ -5,7 +5,11 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QAbstractNativeEventFilter>
 #include <QFile>
+#include <QLabel>
+#include <QTimer>
+#include <functional>
 #include <QFileDialog>
 #include <QOpenGLContext>
 #include <QUrl>
@@ -38,6 +42,7 @@
 #include "broadcast/broadcastmanager.h"
 #endif
 #include "control/controlindicatortimer.h"
+#include "control/controlobject.h"
 #include "library/library.h"
 #include "library/library_decl.h"
 #include "library/library_prefs.h"
@@ -97,6 +102,86 @@ void shonUseDarkTitleBar(QWidget* pWidget) {
     Q_UNUSED(pWidget);
 #endif
 }
+
+// Names and channel counts of the Windows output devices. Cheap to call,
+// used to notice when a sound device is plugged in or removed.
+QStringList shonOutputDeviceNames() {
+    QStringList names;
+#ifdef Q_OS_WIN
+    struct ShonWaveOutCaps {
+        quint16 wMid;
+        quint16 wPid;
+        quint32 vDriverVersion;
+        wchar_t szPname[32];
+        quint32 dwFormats;
+        quint16 wChannels;
+        quint16 wReserved1;
+        quint32 dwSupport;
+    };
+    using NumDevsFn = unsigned int(__stdcall*)();
+    using CapsFn = unsigned int(__stdcall*)(quintptr, ShonWaveOutCaps*, unsigned int);
+    static const auto numDevs = reinterpret_cast<NumDevsFn>(
+            QLibrary::resolve(QStringLiteral("winmm"), "waveOutGetNumDevs"));
+    static const auto getCaps = reinterpret_cast<CapsFn>(
+            QLibrary::resolve(QStringLiteral("winmm"), "waveOutGetDevCapsW"));
+    if (!numDevs || !getCaps) {
+        return names;
+    }
+    const unsigned int count = numDevs();
+    for (unsigned int i = 0; i < count; ++i) {
+        ShonWaveOutCaps caps{};
+        if (getCaps(i, &caps, sizeof(caps)) != 0) {
+            continue;
+        }
+        int length = 0;
+        while (length < 32 && caps.szPname[length] != 0) {
+            ++length;
+        }
+        names << QString::fromWCharArray(caps.szPname, length) + QLatin1Char('/') +
+                        QString::number(caps.wChannels);
+    }
+    names.sort();
+#endif
+    return names;
+}
+
+// Calls back when Windows reports that hardware was added or removed.
+class ShonDeviceChangeFilter : public QAbstractNativeEventFilter {
+  public:
+    explicit ShonDeviceChangeFilter(std::function<void()> callback)
+            : m_callback(std::move(callback)) {
+    }
+    bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr*) override {
+#ifdef Q_OS_WIN
+        if (eventType == "windows_generic_MSG" && message) {
+            struct ShonMsg {
+                void* hwnd;
+                unsigned int message;
+                quintptr wParam;
+                qintptr lParam;
+            };
+            const auto* pMsg = static_cast<const ShonMsg*>(message);
+            constexpr unsigned int kWmDeviceChange = 0x0219;
+            constexpr quintptr kDbtDevNodesChanged = 0x0007;
+            constexpr quintptr kDbtDeviceArrival = 0x8000;
+            constexpr quintptr kDbtDeviceRemoveComplete = 0x8004;
+            if (pMsg->message == kWmDeviceChange &&
+                    (pMsg->wParam == kDbtDevNodesChanged ||
+                            pMsg->wParam == kDbtDeviceArrival ||
+                            pMsg->wParam == kDbtDeviceRemoveComplete)) {
+                m_callback();
+            }
+        }
+#else
+        Q_UNUSED(eventType);
+        Q_UNUSED(message);
+#endif
+        return false;
+    }
+
+  private:
+    std::function<void()> m_callback;
+};
 
 // Dark stylesheet for dialogs the skin does not cover.
 void shonApplyDarkDialogStyle(QWidget* pWidget) {
@@ -399,6 +484,10 @@ void MixxxMainWindow::initialize() {
         checkDirectRendering();
     }
 
+    // ShonDJ: route audio for whatever is plugged in right now.
+    const QString shonAudio =
+            m_pCoreServices->getSoundManager()->shonAutoConfigureAtStartup();
+
     // Sound hardware setup
     // Try to open configured devices. If that fails, display dialogs
     // that allow to either retry, reconfigure devices or exit.
@@ -418,6 +507,13 @@ void MixxxMainWindow::initialize() {
             }
         }
     } while (retryClicked);
+
+    shonSetupAudioHotplug();
+    if (!shonAudio.isEmpty()) {
+        QTimer::singleShot(2500, this, [this, shonAudio]() {
+            shonShowNotice(shonAudio);
+        });
+    }
 
     // Test for at least one output device. If none, display another dialog
     // that says "mixxx will barely work with no outs".
@@ -1271,6 +1367,66 @@ void MixxxMainWindow::slotNoAuxiliaryInputConfigured() {
         m_pPrefDlg->show();
         m_pPrefDlg->showSoundHardwarePage(mixxx::preferences::SoundHardwareTab::Input);
     }
+}
+
+void MixxxMainWindow::shonSetupAudioHotplug() {
+    m_shonOutputNames = shonOutputDeviceNames();
+    m_pShonDeviceTimer = new QTimer(this);
+    m_pShonDeviceTimer->setSingleShot(true);
+    // Windows sends several messages per plug, wait for them to settle.
+    m_pShonDeviceTimer->setInterval(2000);
+    connect(m_pShonDeviceTimer, &QTimer::timeout, this, [this]() {
+        shonCheckAudioDevices();
+    });
+    m_pShonDeviceFilter = std::make_unique<ShonDeviceChangeFilter>([this]() {
+        if (m_pShonDeviceTimer) {
+            m_pShonDeviceTimer->start();
+        }
+    });
+    QCoreApplication::instance()->installNativeEventFilter(m_pShonDeviceFilter.get());
+}
+
+void MixxxMainWindow::shonCheckAudioDevices() {
+    const QStringList names = shonOutputDeviceNames();
+    const bool soundDevicesChanged = names != m_shonOutputNames;
+    m_shonOutputNames = names;
+    if (!soundDevicesChanged) {
+        // Something else was plugged in. Only rescan when nothing is
+        // playing, so a mouse or USB stick never cuts the music.
+        for (int deck = 1; deck <= 4; ++deck) {
+            if (ControlObject::get(ConfigKey(
+                        QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play"))) > 0) {
+                return;
+            }
+        }
+    }
+    shonShowNotice(m_pCoreServices->getSoundManager()->shonHandleDeviceChange());
+}
+
+void MixxxMainWindow::shonShowNotice(const QString& text) {
+    if (text.isEmpty()) {
+        return;
+    }
+    if (!m_pShonNotice) {
+        m_pShonNotice = new QLabel(this);
+        m_pShonNotice->setStyleSheet(QStringLiteral(
+                "QLabel { background: rgba(21, 21, 23, 235); color: #e6e6e6; "
+                "border: 1px solid #2f6bff; border-radius: 8px; "
+                "padding: 8px 16px; font-size: 13px; }"));
+        m_pShonNotice->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_pShonNotice->setAlignment(Qt::AlignCenter);
+        m_pShonNoticeTimer = new QTimer(m_pShonNotice);
+        m_pShonNoticeTimer->setSingleShot(true);
+        m_pShonNoticeTimer->setInterval(4000);
+        connect(m_pShonNoticeTimer, &QTimer::timeout, m_pShonNotice, &QLabel::hide);
+    }
+    m_pShonNotice->setText(text);
+    m_pShonNotice->adjustSize();
+    m_pShonNotice->move((width() - m_pShonNotice->width()) / 2,
+            height() - m_pShonNotice->height() - 48);
+    m_pShonNotice->raise();
+    m_pShonNotice->show();
+    m_pShonNoticeTimer->start();
 }
 
 void MixxxMainWindow::slotHelpAbout() {

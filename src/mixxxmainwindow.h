@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 #include "preferences/constants.h"
@@ -10,6 +11,9 @@
 #include "util/parented_ptr.h"
 
 class ControlObject;
+class QAbstractNativeEventFilter;
+class QLabel;
+class QTimer;
 class DlgDeveloperTools;
 class DlgPreferences;
 class DlgKeywheel;
@@ -162,4 +166,14 @@ class MixxxMainWindow : public QMainWindow {
     mixxx::preferences::ScreenSaver m_inhibitScreensaver;
 
     QSet<ControlObject*> m_skinCreatedControls;
+
+    // ShonDJ auto audio setup
+    void shonSetupAudioHotplug();
+    void shonCheckAudioDevices();
+    void shonShowNotice(const QString& text);
+    std::unique_ptr<QAbstractNativeEventFilter> m_pShonDeviceFilter;
+    QTimer* m_pShonDeviceTimer = nullptr;
+    QStringList m_shonOutputNames;
+    QLabel* m_pShonNotice = nullptr;
+    QTimer* m_pShonNoticeTimer = nullptr;
 };

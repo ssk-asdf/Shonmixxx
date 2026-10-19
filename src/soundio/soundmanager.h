@@ -153,6 +153,12 @@ class SoundManager : public QObject {
 
     void loadConfig();
     void invalidateConfig();
+
+    // ShonDJ auto audio setup. Both return a short description of the new
+    // routing when it changed, or an empty string when nothing changed.
+    QString shonAutoConfigureAtStartup();
+    QString shonHandleDeviceChange();
+
   signals:
     void deviceAdded(SoundDevicePointer pDevice);
     void deviceRemoved(SoundDevicePointer pDevice);
@@ -184,6 +190,11 @@ class SoundManager : public QObject {
     // (from PortAudio) and attempts to close them all. Closing a soundcard that
     // isn't open is safe.
     void closeDevices(bool sleepAfterClosing, bool async = false);
+
+    SoundManagerConfig shonBuildAutoConfig(QString* pDescription, bool laptopOnly);
+    bool shonConfigDevicesExist(const SoundManagerConfig& config) const;
+    void shonRememberAutoConfig();
+    bool m_shonApplying = false;
 
     bool jackApiUsed() const {
         return m_config.getAPI() == SoundManagerConfig::kAPIJack;

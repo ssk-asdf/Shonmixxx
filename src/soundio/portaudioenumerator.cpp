@@ -309,6 +309,7 @@ void PortAudioEnumerator::deinitialize() {
     }
 
     m_devices.clear();
+    m_apis.clear();
 
     PaError err = Pa_Terminate();
     if (err == paNoError) {
