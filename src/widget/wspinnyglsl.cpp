@@ -124,7 +124,12 @@ void WSpinnyGLSL::paintGL() {
     }
 
     if (m_bShowCover && m_loadedCoverTextureScaled.isStorageAllocated()) {
+        // Shon: the cover art spins with the platter, like a record label.
+        QMatrix4x4 coverRotate;
+        coverRotate.rotate(m_fAngle, 0, 0, -1);
+        m_textureShader.setUniformValue(matrixLocation, coverRotate);
         drawTexture(&m_loadedCoverTextureScaled);
+        m_textureShader.setUniformValue(matrixLocation, matrix);
     }
 
     if (m_maskTexture.isStorageAllocated()) {

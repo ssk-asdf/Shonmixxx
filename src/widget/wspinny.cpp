@@ -26,9 +26,14 @@ void WSpinny::draw() {
 
     if (m_bShowCover && !m_loadedCoverScaled.isNull()) {
         // Some covers aren't square, so center them.
-        double x = (width() - m_loadedCoverScaled.width() / scaleFactor) / 2;
-        double y = (height() - m_loadedCoverScaled.height() / scaleFactor) / 2;
-        p.drawPixmap(QPointF(x, y), m_loadedCoverScaled);
+        // Shon: rotate around the center so the cover spins with the platter.
+        p.save();
+        p.translate(width() / 2.0, height() / 2.0);
+        p.rotate(m_fAngle);
+        p.drawPixmap(QPointF(-m_loadedCoverScaled.width() / scaleFactor / 2.0,
+                             -m_loadedCoverScaled.height() / scaleFactor / 2.0),
+                m_loadedCoverScaled);
+        p.restore();
     }
 
     if (m_pMaskImage) {
