@@ -1,7 +1,9 @@
 #include "library/starrating.h"
 
+#include <QLinearGradient>
 #include <QPainter>
 #include <QRect>
+#include <QRectF>
 
 #include "util/math.h"
 #include "util/painterscope.h"
@@ -33,31 +35,41 @@ QSize StarRating::sizeHint() const {
     return PaintingScaleFactor * QSize(m_maxStarCount, 1);
 }
 
+// Shon: rating is drawn as an Energy bar instead of stars.
+// One smooth bar filled to the level, with a green to yellow to red
+// gradient across its full length, so higher energy shows more red.
 void StarRating::paint(QPainter* painter, const QRect& rect) const {
     PainterScope painterScope(painter);
-    // Assume the painter is configured with the right brush.
     painter->setRenderHint(QPainter::Antialiasing, true);
-    // Don't draw outlines, only fill the polygons
     painter->setPen(Qt::NoPen);
 
-    // Center vertically inside the table cell, and also center horizontally
-    // if the cell is wider than the minimum stars width.
-    int xOffset = std::max((rect.width() - sizeHint().width()) / 2, 0);
-    int yOffset = (rect.height() - PaintingScaleFactor) / 2;
-    painter->translate(rect.x() + xOffset, rect.y() + yOffset);
-    painter->scale(PaintingScaleFactor, PaintingScaleFactor);
+    // Same footprint as the old stars so clicking still lines up.
+    const int width = std::min(sizeHint().width(), rect.width());
+    const int xOffset = std::max((rect.width() - sizeHint().width()) / 2, 0);
+    const double barHeight = PaintingScaleFactor * 0.5;
+    const QRectF track(rect.x() + xOffset,
+            rect.y() + (rect.height() - barHeight) / 2.0,
+            width,
+            barHeight);
+    const double radius = barHeight / 2.0;
 
-    // Determine number of stars that are possible to paint
-    int n = rect.width() / PaintingScaleFactor;
+    // Empty track uses the cell's text color, faded.
+    QColor emptyColor = painter->brush().color();
+    emptyColor.setAlphaF(0.2f);
+    painter->setBrush(emptyColor);
+    painter->drawRoundedRect(track, radius, radius);
 
-    for (int i = 0; i < m_maxStarCount && i < n; ++i) {
-        if (i < m_starCount) {
-            painter->drawPolygon(m_starPolygon, Qt::WindingFill);
-        } else {
-            painter->drawPolygon(m_diamondPolygon, Qt::WindingFill);
-        }
-        painter->translate(1.0, 0.0);
+    if (m_starCount <= 0 || m_maxStarCount <= 0) {
+        return;
     }
+    QLinearGradient gradient(track.topLeft(), track.topRight());
+    gradient.setColorAt(0.0, QColor(46, 204, 64));
+    gradient.setColorAt(0.5, QColor(255, 214, 10));
+    gradient.setColorAt(1.0, QColor(255, 59, 48));
+    QRectF filled = track;
+    filled.setWidth(track.width() * m_starCount / m_maxStarCount);
+    painter->setBrush(gradient);
+    painter->drawRoundedRect(filled, radius, radius);
 }
 
 int StarRating::starAtPosition(int x, const QRect& rect) const {

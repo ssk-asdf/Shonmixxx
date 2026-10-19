@@ -1,6 +1,7 @@
 #include "library/basetracktablemodel.h"
 
 #include <QBuffer>
+#include <cmath>
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QScreen>
@@ -169,6 +170,10 @@ BaseTrackTableModel::BaseTrackTableModel(
             &PlayerInfo::trackChanged,
             this,
             &BaseTrackTableModel::slotTrackChanged);
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::currentPlayingTrackChanged,
+            this,
+            &BaseTrackTableModel::slotShonPlayingTrackChanged);
     CoverArtCache* pCache = CoverArtCache::instance();
     if (pCache) {
         connect(pCache,
@@ -454,6 +459,15 @@ QVariant BaseTrackTableModel::data(
                 ColumnCache::COLUMN_LIBRARYTABLE_COLOR);
         const auto rgbColor = mixxx::RgbColor::fromQVariant(rgbColorValue);
         if (!rgbColor) {
+            // Shon: tint tracks that mix well with the one playing.
+            const int matchLevel = shonMatchLevel(index);
+            if (matchLevel == 2) {
+                // Full match: strong tint.
+                return QBrush(QColor(47, 107, 255, 90));
+            } else if (matchLevel == 1) {
+                // Mixes fine, but energy would drop or jump: light tint.
+                return QBrush(QColor(47, 107, 255, 35));
+            }
             return QVariant();
         }
         auto bgColor = mixxx::RgbColor::toQColor(rgbColor);
@@ -1288,4 +1302,92 @@ QVariant BaseTrackTableModel::getFieldVariant(
 QString BaseTrackTableModel::getFieldString(
         const QModelIndex& index, ColumnCache::Column column) const {
     return getFieldVariant(index, column).toString();
+}
+
+// Shon smart next-track highlighting.
+// A track is a good next pick when its BPM is within kShonBpmTolerance of the
+// playing track (also at half or double time) and its key is harmonically
+// compatible (same Camelot number, plus or minus 1, or the A/B swap).
+namespace {
+constexpr double kShonBpmTolerance = 0.06;
+} // namespace
+
+void BaseTrackTableModel::slotShonPlayingTrackChanged(TrackPointer pTrack) {
+    m_shonHasReference = false;
+    m_shonReferenceHasKey = false;
+    m_shonCompatibleKeys.clear();
+    m_shonReferenceTrackId = QVariant();
+    m_shonReferenceEnergy = 0;
+    if (pTrack) {
+        m_shonReferenceBpm = pTrack->getBpm();
+        m_shonHasReference = m_shonReferenceBpm > 0.0;
+        m_shonReferenceTrackId = pTrack->getId().toVariant();
+        m_shonReferenceEnergy = pTrack->getRating();
+        const auto key = pTrack->getKey();
+        if (key != mixxx::track::io::key::INVALID) {
+            m_shonReferenceHasKey = true;
+            const auto compatible = KeyUtils::getCompatibleKeys(key);
+            for (const auto compatibleKey : compatible) {
+                m_shonCompatibleKeys.append(static_cast<int>(compatibleKey));
+            }
+        }
+    }
+    // Repaint row backgrounds only; no database re-query.
+    const int rows = rowCount(QModelIndex());
+    const int columns = columnCount(QModelIndex());
+    if (rows > 0 && columns > 0) {
+        emit dataChanged(index(0, 0, QModelIndex()),
+                index(rows - 1, columns - 1, QModelIndex()),
+                {Qt::BackgroundRole});
+    }
+}
+
+int BaseTrackTableModel::shonMatchLevel(const QModelIndex& index) const {
+    if (!m_shonHasReference) {
+        return 0;
+    }
+    // Don't highlight the track that is playing.
+    if (m_shonReferenceTrackId.isValid() &&
+            rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_ID).toLongLong() ==
+                    m_shonReferenceTrackId.toLongLong()) {
+        return 0;
+    }
+    bool ok = false;
+    const double bpm = rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_BPM)
+                               .toDouble(&ok);
+    if (!ok || bpm <= 0.0) {
+        return 0;
+    }
+    bool bpmMatch = false;
+    for (const double factor : {1.0, 0.5, 2.0}) {
+        if (std::abs(bpm * factor - m_shonReferenceBpm) / m_shonReferenceBpm <=
+                kShonBpmTolerance) {
+            bpmMatch = true;
+            break;
+        }
+    }
+    if (!bpmMatch) {
+        return 0;
+    }
+    if (m_shonReferenceHasKey) {
+        const int keyId = rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_KEY_ID)
+                                  .toInt(&ok);
+        if (!ok || !m_shonCompatibleKeys.contains(keyId)) {
+            return 0;
+        }
+    }
+    // Energy: same level or one step up builds the room. Unrated tracks
+    // (on either side) don't count against a match.
+    if (m_shonReferenceEnergy <= 0) {
+        return 2;
+    }
+    const int energy = rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_RATING)
+                               .toInt(&ok);
+    if (!ok || energy <= 0) {
+        return 2;
+    }
+    if (energy == m_shonReferenceEnergy || energy == m_shonReferenceEnergy + 1) {
+        return 2;
+    }
+    return 1;
 }

@@ -116,7 +116,7 @@ constexpr ColumnProperties kColumnPropertiesByEnum[] = {
                 nullptr,
                 0},
         DI(ColumnCache::COLUMN_LIBRARYTABLE_RATING){&LIBRARYTABLE_RATING,
-                QT_TRANSLATE_NOOP("BaseTrackTableModel", "Rating"),
+                QT_TRANSLATE_NOOP("BaseTrackTableModel", "Energy"),
                 kDefaultColumnWidth * 2},
         DI(ColumnCache::COLUMN_LIBRARYTABLE_KEY){&LIBRARYTABLE_KEY,
                 QT_TRANSLATE_NOOP("BaseTrackTableModel", "Key"),

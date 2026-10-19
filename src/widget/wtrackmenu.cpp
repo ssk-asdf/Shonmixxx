@@ -452,7 +452,7 @@ void WTrackMenu::createActions() {
         m_pClearPlayCountAction = make_parented<QAction>(tr("Play Count"), m_pClearMetadataMenu);
         connect(m_pClearPlayCountAction, &QAction::triggered, this, &WTrackMenu::slotClearPlayCount);
 
-        m_pClearRatingAction = make_parented<QAction>(tr("Rating"), m_pClearMetadataMenu);
+        m_pClearRatingAction = make_parented<QAction>(tr("Energy"), m_pClearMetadataMenu);
         connect(m_pClearRatingAction, &QAction::triggered, this, &WTrackMenu::slotClearRating);
 
         m_pClearMainCueAction = make_parented<QAction>(tr("Cue Point"), m_pClearMetadataMenu);

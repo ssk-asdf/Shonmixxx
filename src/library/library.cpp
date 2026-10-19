@@ -32,7 +32,11 @@
 #include "library/trackset/playlistfeature.h"
 #include "library/trackset/setlogfeature.h"
 #include "library/traktor/traktorfeature.h"
+#include "mixer/playerinfo.h"
+#include "control/controlpushbutton.h"
 #include "mixer/playermanager.h"
+#include "track/keyutils.h"
+#include "track/track.h"
 #include "moc_library.cpp"
 #include "util/assert.h"
 #include "util/logger.h"
@@ -270,6 +274,50 @@ Library::Library(
     m_editMetadataSelectedClick = m_pConfig->getValue(
             kEditMetadataSelectedClickConfigKey,
             kEditMetadataSelectedClickDefault);
+
+    m_pShonShowMatches = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Library]"), QStringLiteral("shon_show_matches")));
+    m_pShonShowMatches->connectValueChangeRequest(this, &Library::slotShonToggleMatches);
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::currentPlayingTrackChanged,
+            this,
+            &Library::slotShonPlayingTrackChanged);
+}
+
+void Library::slotShonToggleMatches(double value) {
+    // React to the press only, not the release.
+    if (value <= 0.0) {
+        return;
+    }
+    m_shonMatchesActive = !m_shonMatchesActive;
+    if (m_shonMatchesActive) {
+        shonApplyMatchesFilter(PlayerInfo::instance().getCurrentPlayingTrack());
+    } else {
+        searchTracksInCollection(QString());
+    }
+}
+
+void Library::slotShonPlayingTrackChanged(TrackPointer pTrack) {
+    // Only follow the playing track while the filter is on, and keep the
+    // last results when nothing is playing.
+    if (m_shonMatchesActive && pTrack) {
+        shonApplyMatchesFilter(pTrack);
+    }
+}
+
+void Library::shonApplyMatchesFilter(TrackPointer pTrack) {
+    if (!pTrack || pTrack->getBpm() <= 0.0) {
+        return;
+    }
+    // Uses Mixxx's own search. The "~" goes before the field name:
+    // "~bpm:" also finds half and double time, "~key:" finds compatible keys.
+    QString query = QStringLiteral("~bpm:%1").arg(pTrack->getBpm(), 0, 'f', 1);
+    const auto key = pTrack->getKey();
+    if (key != mixxx::track::io::key::INVALID) {
+        query += QStringLiteral(" ~key:%1").arg(
+                KeyUtils::keyToString(key, KeyUtils::KeyNotation::OpenKey));
+    }
+    searchTracksInCollection(query);
 }
 
 Library::~Library() {

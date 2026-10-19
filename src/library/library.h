@@ -181,6 +181,10 @@ class Library: public QObject {
 
   private slots:
       void onPlayerManagerTrackAnalyzerProgress(TrackId trackId, AnalyzerProgress analyzerProgress);
+      /// Shon: Ctrl+M toggles a filter showing only tracks that mix with
+      /// the one the crowd hears. Refreshes when the playing track changes.
+      void slotShonToggleMatches(double value);
+      void slotShonPlayingTrackChanged(TrackPointer pTrack);
       void onPlayerManagerTrackAnalyzerIdle();
 
   private:
@@ -207,4 +211,7 @@ class Library: public QObject {
     int m_iTrackTableRowHeight;
     bool m_editMetadataSelectedClick;
     std::unique_ptr<ControlObject> m_pKeyNotation;
+    std::unique_ptr<ControlObject> m_pShonShowMatches;
+    bool m_shonMatchesActive = false;
+    void shonApplyMatchesFilter(TrackPointer pTrack);
 };

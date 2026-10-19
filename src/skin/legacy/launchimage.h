@@ -1,49 +1,38 @@
 #pragma once
 
+#include <QElapsedTimer>
+#include <QPixmap>
+#include <QString>
+#include <QTimer>
 #include <QWidget>
 
-QT_FORWARD_DECLARE_CLASS(QProgressBar);
-QT_FORWARD_DECLARE_CLASS(QLabel);
+QT_FORWARD_DECLARE_CLASS(QQmlEngine);
+QT_FORWARD_DECLARE_CLASS(QQuickWindow);
 
-// This is a widget that is shown in the Mixxx main window
-// until the skin is ready to use.
-// It shows a centered Image and a progress bar below.
-// By default a symbolic Mixxx icon and logo is shown.
-// It can be modified in the skin.xml file at <skin> section,
-// to match the skin like that:
-//    <LaunchImageStyle>
-//        LaunchImage { background-color: #202020; }
-//        QLabel {
-//            image: url(skin:/style/mixxx-icon-logo-symbolic.svg);
-//            padding:0;
-//            margin:0;
-//            border:none;
-//            min-width: 208px;
-//            min-height: 48px;
-//            max-width: 208px;
-//            max-height: 48px;
-//        }
-//        QProgressBar {
-//            background-color: #202020;
-//            border:none;
-//            min-width: 208px;
-//            min-height: 3px;
-//            max-width: 208px;
-//            max-height: 3px;
-//        }
-//        QProgressBar::chunk { background-color: #ec4522; }
-//    </LaunchImageStyle>
-
+// Shon loading screen, shown until the skin is ready.
+// With Qt Quick available it opens a small splash window whose spinner is
+// animated on Qt Quick's render thread, so it keeps moving while startup
+// work blocks the main thread. Without Qt Quick it falls back to painting
+// the same layout inside the main window.
+// The skin's <LaunchImageStyle> is ignored so the branding never changes.
 class LaunchImage: public QWidget {
     Q_OBJECT
   public:
     LaunchImage(QWidget* pParent, const QString& styleSheet);
-    ~LaunchImage() override = default;
+    ~LaunchImage() override;
     void progress(int value, const QString& serviceName);
 
   protected:
     void paintEvent(QPaintEvent*) override;
 
   private:
-    QProgressBar* m_pProgressBar;
+    void closeSplashWindow();
+
+    QQmlEngine* m_pQmlEngine;
+    QQuickWindow* m_pSplashWindow;
+    QPixmap m_logo;
+    QTimer m_animationTimer;
+    QElapsedTimer m_clock;
+    QString m_status;
+    int m_progress;
 };

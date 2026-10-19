@@ -284,6 +284,9 @@ class BaseTrackTableModel : public QAbstractTableModel, public TrackModel {
     /// will tell the view(s) to repaint date columns when visible
     void slotEmitDataChangedForDateColumns();
 
+    /// Shon: re-score the library when the playing track changes.
+    void slotShonPlayingTrackChanged(TrackPointer pTrack);
+
   private:
     QVariant rawSiblingValue(
             const QModelIndex& index,
@@ -329,5 +332,15 @@ class BaseTrackTableModel : public QAbstractTableModel, public TrackModel {
     static std::optional<ColorPalette> s_keyColorPalette;
 
     static bool s_bApplyPlayedTrackColor;
+
+    // Shon smart next-track highlighting.
+    // 0 = no match, 1 = BPM and key fit, 2 = BPM, key, and energy all fit.
+    int shonMatchLevel(const QModelIndex& index) const;
+    int m_shonReferenceEnergy = 0;
+    bool m_shonHasReference = false;
+    double m_shonReferenceBpm = 0.0;
+    bool m_shonReferenceHasKey = false;
+    QList<int> m_shonCompatibleKeys;
+    QVariant m_shonReferenceTrackId;
     static QString s_dateFormat;
 };
