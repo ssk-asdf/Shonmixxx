@@ -20,6 +20,7 @@ class AnalysisFeature;
 class AutoDJFeature;
 class BrowseFeature;
 class ControlObject;
+class ShonRequests;
 class CrateFeature;
 class LibraryControl;
 class LibraryFeature;
@@ -108,6 +109,11 @@ class Library: public QObject {
     /// and shows the results by switching the view.
     void searchTracksInCollection(const QString& query);
     void showAutoDJ();
+
+    /// ShonDJ guest song requests (QR code inbox).
+    ShonRequests* shonRequests() const {
+        return m_pShonRequests.get();
+    }
 
     static const QString kAutoDJViewName;
 
@@ -219,6 +225,7 @@ class Library: public QObject {
     std::unique_ptr<ControlObject> m_pShonShowMatches;
     bool m_shonMatchesActive = false;
     std::unique_ptr<ControlObject> m_pShonAwayMode;
+    parented_ptr<ShonRequests> m_pShonRequests;
     QTimer* m_pShonAwayTimer = nullptr;
     void shonAwayAddTracks(int count);
     void shonApplyMatchesFilter(TrackPointer pTrack);

@@ -1,4 +1,5 @@
 #include "library/library.h"
+#include "library/shonrequests.h"
 
 #include <QApplication>
 #include <QDir>
@@ -295,6 +296,10 @@ Library::Library(
             &PlayerInfo::currentPlayingTrackChanged,
             this,
             &Library::slotShonPlayingTrackChanged);
+
+    // Shon: guest song requests through a QR code.
+    m_pShonRequests = make_parented<ShonRequests>(
+            m_pConfig, this, m_pTrackCollectionManager.data(), this);
 
     m_pShonAwayMode = std::make_unique<ControlPushButton>(
             ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("shon_away_mode")));

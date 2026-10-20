@@ -43,6 +43,7 @@
 #endif
 #include "control/controlindicatortimer.h"
 #include "control/controlobject.h"
+#include "library/shonrequests.h"
 #include "library/library.h"
 #include "library/library_decl.h"
 #include "library/library_prefs.h"
@@ -509,6 +510,14 @@ void MixxxMainWindow::initialize() {
     } while (retryClicked);
 
     shonSetupAudioHotplug();
+    // Song request notices ("Request: ...") use the same corner card.
+    if (const auto pLibrary = m_pCoreServices->getLibrary()) {
+        if (ShonRequests* pRequests = pLibrary->shonRequests()) {
+            connect(pRequests, &ShonRequests::notice, this, [this](const QString& text) {
+                shonShowNotice(text);
+            });
+        }
+    }
     if (!shonAudio.isEmpty()) {
         QTimer::singleShot(2500, this, [this, shonAudio]() {
             shonShowNotice(shonAudio);

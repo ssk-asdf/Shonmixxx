@@ -193,6 +193,19 @@
               <ButtonState>LeftButton</ButtonState>
             </Connection>
           </PushButton>
+          <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+          <PushButton>
+            <Tooltip>Song requests: QR code and inbox</Tooltip>
+            <ObjectName>ShonMode</ObjectName>
+            <Size>78f,24f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number><Text>REQUESTS</Text></State>
+            <State><Number>1</Number><Text>REQUESTS</Text></State>
+            <Connection>
+              <ConfigKey>[Shon],requests_window</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
           <WidgetGroup><Size>10f,1min</Size></WidgetGroup>
           <WidgetGroup><ObjectName>ShonToolbarDivider</ObjectName><Size>1f,16f</Size></WidgetGroup>
           <WidgetGroup><Size>10f,1min</Size></WidgetGroup>
