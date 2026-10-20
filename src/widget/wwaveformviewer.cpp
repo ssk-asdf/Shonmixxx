@@ -194,11 +194,16 @@ void WWaveformViewer::mouseReleaseEvent(QMouseEvent* /*event*/) {
 
 void WWaveformViewer::wheelEvent(QWheelEvent* event) {
     if (m_waveformWidget) {
-        if (event->angleDelta().y() > 0) {
-            onZoomChange(m_waveformWidget->getZoom() / 1.05);
-        } else if (event->angleDelta().y() < 0) {
-            onZoomChange(m_waveformWidget->getZoom() * 1.05);
+        // Shon: scale by how far the wheel moved, so a mouse notch is one
+        // step and a trackpad (or pinch, which Windows sends as Ctrl+wheel)
+        // zooms in fine, small steps. The renderer animates the change.
+        const int dy = event->angleDelta().y();
+        if (dy != 0) {
+            constexpr double kZoomPerNotch = 1.12;
+            const double notches = static_cast<double>(dy) / 120.0;
+            onZoomChange(m_waveformWidget->getZoom() * std::pow(kZoomPerNotch, -notches));
         }
+        event->accept();
     }
 }
 

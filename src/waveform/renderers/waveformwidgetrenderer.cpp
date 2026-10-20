@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QPainterPath>
+#include <cmath>
 
 #include "control/controlproxy.h"
 #include "track/track.h"
@@ -36,6 +37,7 @@ WaveformWidgetRenderer::WaveformWidgetRenderer(const QString& group)
           m_trackPixelCount(0.0),
 
           m_zoomFactor(1.0),
+          m_targetZoom(1.0),
           m_visualSamplePerPixel(1.0),
           m_audioSamplePerPixel(1.0),
           m_alphaBeatGrid(90),
@@ -166,6 +168,25 @@ void WaveformWidgetRenderer::onPreRender(VSyncTimeProvider* vsyncThread) {
     // Allow waveform to spread one visual sample across a hundred pixels
     // NOTE: The hundred pixel limit is totally arbitrary. Theoretically,
     // there should be no limit to how far the waveforms can be zoomed in.
+    // Shon: ease the drawn zoom toward the target. Done in log space so
+    // zooming in and out feel the same speed.
+    if (m_zoomFactor != m_targetZoom) {
+        const double elapsedMs = m_zoomClock.isValid()
+                ? static_cast<double>(m_zoomClock.restart())
+                : 16.0;
+        m_zoomClock.start();
+        constexpr double kZoomEaseMs = 50.0; // about 95% there after 150ms
+        const double t = 1.0 - std::exp(-math_clamp(elapsedMs, 0.0, 100.0) / kZoomEaseMs);
+        const double current = std::log(m_zoomFactor);
+        const double target = std::log(m_targetZoom);
+        m_zoomFactor = std::exp(current + (target - current) * t);
+        if (std::abs(m_zoomFactor - m_targetZoom) < m_targetZoom * 0.002) {
+            m_zoomFactor = m_targetZoom;
+        }
+    } else {
+        m_zoomClock.invalidate();
+    }
+
     double visualSamplePerPixel = m_zoomFactor * rateRatio / m_scaleFactor;
     m_visualSamplePerPixel = math_max(0.01, visualSamplePerPixel);
 
@@ -443,7 +464,8 @@ void WaveformWidgetRenderer::setup(
 
 void WaveformWidgetRenderer::setZoom(double zoom) {
     //qDebug() << "WaveformWidgetRenderer::setZoom" << zoom;
-    m_zoomFactor = math_clamp<double>(zoom, s_waveformMinZoom, s_waveformMaxZoom);
+    // Shon: only set the target, onPreRender() glides there.
+    m_targetZoom = math_clamp<double>(zoom, s_waveformMinZoom, s_waveformMaxZoom);
 }
 
 void WaveformWidgetRenderer::setDisplayBeatGridAlpha(int alpha) {

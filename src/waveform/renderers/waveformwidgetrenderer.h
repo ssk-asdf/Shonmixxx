@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QElapsedTimer>
+
 #include "track/track_decl.h"
 #include "util/class.h"
 #include "waveform/renderers/waveformmark.h"
@@ -137,8 +139,10 @@ class WaveformWidgetRenderer {
     int getTotalVSample() const {
         return m_totalVSamples;
     }
+    // Shon: the zoom we are easing toward. The drawn zoom catches up
+    // over about 150ms so zooming glides instead of jumping.
     double getZoom() const {
-        return m_zoomFactor;
+        return m_targetZoom;
     }
     double getGain() const {
         return m_gain;
@@ -242,7 +246,9 @@ class WaveformWidgetRenderer {
     double m_lastDisplayedPosition[2];
     double m_trackPixelCount;
 
-    double m_zoomFactor;
+    double m_zoomFactor; // zoom used for drawing this frame
+    double m_targetZoom;
+    QElapsedTimer m_zoomClock;
     double m_visualSamplePerPixel;
     double m_audioSamplePerPixel;
 

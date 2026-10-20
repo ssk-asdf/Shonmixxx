@@ -17,6 +17,7 @@
 #include "mixer/playermanager.h"
 #include "moc_basetrackplayer.cpp"
 #include "track/track.h"
+#include "util/math.h"
 #include "util/sandbox.h"
 #include "vinylcontrol/defs_vinylcontrol.h"
 #include "waveform/renderers/waveformwidgetrenderer.h"
@@ -1007,7 +1008,10 @@ void BaseTrackPlayerImpl::slotWaveformZoomUp(double pressed) {
         return;
     }
 
-    m_pWaveformZoom->set(m_pWaveformZoom->get() + 1.0);
+    // Shon: finer zoom steps (about twice as many as before).
+    m_pWaveformZoom->set(math_clamp(m_pWaveformZoom->get() * 1.25,
+            WaveformWidgetRenderer::s_waveformMinZoom,
+            WaveformWidgetRenderer::s_waveformMaxZoom));
 }
 
 void BaseTrackPlayerImpl::slotWaveformZoomDown(double pressed) {
@@ -1015,7 +1019,9 @@ void BaseTrackPlayerImpl::slotWaveformZoomDown(double pressed) {
         return;
     }
 
-    m_pWaveformZoom->set(m_pWaveformZoom->get() - 1.0);
+    m_pWaveformZoom->set(math_clamp(m_pWaveformZoom->get() / 1.25,
+            WaveformWidgetRenderer::s_waveformMinZoom,
+            WaveformWidgetRenderer::s_waveformMaxZoom));
 }
 
 void BaseTrackPlayerImpl::slotWaveformZoomSetDefault(double pressed) {
