@@ -284,10 +284,10 @@
                   <VuMeter>
                     <TooltipId>audio_latency_usage</TooltipId>
                     <Size>40f,4f</Size>
-                    <PathBack>skin:/<Variable name="StyleScheme"/>/style/latency_bg.png</PathBack>
-                    <PathVu>skin:/<Variable name="StyleScheme"/>/style/latency_over.png</PathVu>
+                    <PathBack>skin:/<Variable name="StyleScheme"/>/style/shon_cpu_bg.svg</PathBack>
+                    <PathVu>skin:/<Variable name="StyleScheme"/>/style/shon_cpu_fg.svg</PathVu>
                     <Horizontal>true</Horizontal>
-                    <PeakHoldSize>5</PeakHoldSize>
+                    <PeakHoldSize>0</PeakHoldSize>
                     <PeakHoldTime>1000</PeakHoldTime>
                     <PeakFallTime>100</PeakFallTime>
                     <PeakFallStep>1</PeakFallStep>

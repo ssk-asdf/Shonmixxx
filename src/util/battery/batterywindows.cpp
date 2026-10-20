@@ -26,15 +26,22 @@ void BatteryWindows::read() {
         if (m_dPercentage == 255) {
             m_dPercentage = 0;
         }
-        int batStat = static_cast<int>(spsPwr.BatteryFlag);
-        if (batStat == 1 || batStat == 2 || batStat == 4) {
-            m_chargingState = Battery::DISCHARGING;
-        } else if (batStat == 8) {
-            m_chargingState = Battery::CHARGING;
-        }
-        // I get this directly from the API
-        if (m_dPercentage > 99) {
-            m_chargingState = Battery::CHARGED;
+        // Shon: BatteryFlag is a bit mask (1 high, 2 low, 4 critical,
+        // 8 charging, 128 no battery, 255 unknown) and is 0 between 33% and
+        // 66%. The old exact-value checks hid the icon for most levels.
+        const int batStat = static_cast<int>(spsPwr.BatteryFlag);
+        if (batStat != 128 && batStat != 255) {
+            if (batStat & 8) {
+                m_chargingState = Battery::CHARGING;
+            } else if (spsPwr.ACLineStatus == 1) {
+                // Plugged in but not charging, usually full or held at a limit.
+                m_chargingState = Battery::CHARGED;
+            } else {
+                m_chargingState = Battery::DISCHARGING;
+            }
+            if (m_dPercentage > 99) {
+                m_chargingState = Battery::CHARGED;
+            }
         }
         // windows tells us the remaining time in seconds (-1 if unknown)
         int seconds_left = static_cast<int>(spsPwr.BatteryLifeTime);
