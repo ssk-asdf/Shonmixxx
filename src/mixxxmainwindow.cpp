@@ -6,7 +6,11 @@
 #include <QCloseEvent>
 #include <QDebug>
 #include <QAbstractNativeEventFilter>
+#include <QMoveEvent>
+#include <QResizeEvent>
 #include <QFile>
+#include <QRegularExpression>
+#include <QApplication>
 #include <QLabel>
 #include <QTimer>
 #include <functional>
@@ -184,6 +188,32 @@ class ShonDeviceChangeFilter : public QAbstractNativeEventFilter {
     std::function<void()> m_callback;
 };
 
+// Calls back when a watched widget moves, resizes or appears.
+class ShonGeometryWatcher : public QObject {
+  public:
+    ShonGeometryWatcher(std::function<void()> callback, QObject* pParent)
+            : QObject(pParent),
+              m_callback(std::move(callback)) {
+    }
+
+  protected:
+    bool eventFilter(QObject* pObject, QEvent* pEvent) override {
+        switch (pEvent->type()) {
+        case QEvent::Resize:
+        case QEvent::Move:
+        case QEvent::Show:
+            m_callback();
+            break;
+        default:
+            break;
+        }
+        return QObject::eventFilter(pObject, pEvent);
+    }
+
+  private:
+    std::function<void()> m_callback;
+};
+
 // Dark stylesheet for dialogs the skin does not cover.
 void shonApplyDarkDialogStyle(QWidget* pWidget) {
     if (!pWidget) {
@@ -198,6 +228,46 @@ void shonApplyDarkDialogStyle(QWidget* pWidget) {
     }();
     if (!style.isEmpty()) {
         pWidget->setStyleSheet(style);
+    }
+}
+
+// The same dark style for every other dialog (track properties, message
+// boxes, ...). Applied app wide, so every selector is limited to widgets
+// inside a QDialog and the skin itself is never touched.
+void shonApplyDarkStyleToAllDialogs() {
+    QFile file(QStringLiteral(":/images/shon/dialogs.qss"));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    QString source = QString::fromUtf8(file.readAll());
+    source.remove(QRegularExpression(QStringLiteral("/\\*.*?\\*/"),
+            QRegularExpression::DotMatchesEverythingOption));
+    QString scoped;
+    const QStringList blocks = source.split(QLatin1Char('}'), Qt::SkipEmptyParts);
+    for (const QString& block : blocks) {
+        const int brace = block.indexOf(QLatin1Char('{'));
+        if (brace < 0) {
+            continue;
+        }
+        QStringList selectors;
+        const QStringList parts = block.left(brace).split(QLatin1Char(','), Qt::SkipEmptyParts);
+        for (QString selector : parts) {
+            selector = selector.trimmed();
+            if (selector.isEmpty()) {
+                continue;
+            }
+            if (!selector.startsWith(QStringLiteral("QDialog"))) {
+                selector = QStringLiteral("QDialog ") + selector;
+            }
+            selectors << selector;
+        }
+        if (!selectors.isEmpty()) {
+            scoped += selectors.join(QStringLiteral(", ")) + QStringLiteral(" ") +
+                    block.mid(brace).trimmed() + QStringLiteral("}\n");
+        }
+    }
+    if (auto* pApp = qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        pApp->setStyleSheet(pApp->styleSheet() + QStringLiteral("\n") + scoped);
     }
 }
 } // namespace
@@ -446,6 +516,7 @@ void MixxxMainWindow::initialize() {
     m_pPrefDlg->setWindowIcon(QIcon(kShonWindowIconPath));
     shonUseDarkTitleBar(m_pPrefDlg);
     shonApplyDarkDialogStyle(m_pPrefDlg);
+    shonApplyDarkStyleToAllDialogs();
     m_pPrefDlg->setHidden(true);
     connect(m_pPrefDlg,
             &DlgPreferences::tooltipModeChanged,
@@ -516,6 +587,28 @@ void MixxxMainWindow::initialize() {
             connect(pRequests, &ShonRequests::notice, this, [this](const QString& text) {
                 shonShowNotice(text);
             });
+            // Requests inbox: a panel that slides over the right side,
+            // under the top bar, like skin settings. It never resizes the window.
+            // It is its own frameless window glued to our right edge, because
+            // the OpenGL waveforms always draw on top of normal child widgets.
+            m_pShonRequestsPanel = pRequests->createView(this);
+            m_pShonRequestsPanel->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
+            m_pShonRequestsPanel->hide();
+            connect(pRequests,
+                    &ShonRequests::panelVisibilityRequested,
+                    this,
+                    [this](bool visible) {
+                        if (visible) {
+                            // The skin opens its space first, then we fill it.
+                            QTimer::singleShot(0, this, [this]() {
+                                shonPlaceRequestsPanel();
+                                m_pShonRequestsPanel->show();
+                                m_pShonRequestsPanel->raise();
+                            });
+                        } else {
+                            m_pShonRequestsPanel->hide();
+                        }
+                    });
         }
     }
     if (!shonAudio.isEmpty()) {
@@ -1410,6 +1503,51 @@ void MixxxMainWindow::shonCheckAudioDevices() {
         }
     }
     shonShowNotice(m_pCoreServices->getSoundManager()->shonHandleDeviceChange());
+}
+
+void MixxxMainWindow::shonPlaceRequestsPanel() {
+    if (!m_pShonRequestsPanel) {
+        return;
+    }
+    // The skin has an empty ShonRequestsSlot that pushes everything over.
+    // The panel sits exactly on top of it. Find it again after skin reloads.
+    if (!m_pShonRequestsSlot && centralWidget()) {
+        m_pShonRequestsSlot =
+                centralWidget()->findChild<QWidget*>(QStringLiteral("ShonRequestsSlot"));
+        if (m_pShonRequestsSlot) {
+            if (!m_pShonSlotWatcher) {
+                m_pShonSlotWatcher = new ShonGeometryWatcher(
+                        [this]() {
+                            if (m_pShonRequestsPanel && m_pShonRequestsPanel->isVisible()) {
+                                shonPlaceRequestsPanel();
+                            }
+                        },
+                        this);
+            }
+            m_pShonRequestsSlot->installEventFilter(m_pShonSlotWatcher);
+        }
+    }
+    if (m_pShonRequestsSlot && m_pShonRequestsSlot->isVisible()) {
+        const QPoint topLeft = m_pShonRequestsSlot->mapToGlobal(QPoint(0, 0));
+        m_pShonRequestsPanel->setGeometry(QRect(topLeft, m_pShonRequestsSlot->size()));
+        return;
+    }
+    // Skin without a slot: cover the right edge under the top bar.
+    constexpr int kPanelWidth = 360;
+    constexpr int kTopBarHeight = 46;
+    const int top = (centralWidget() ? centralWidget()->y() : 0) + kTopBarHeight;
+    const QPoint topLeft = mapToGlobal(QPoint(width() - kPanelWidth, top));
+    m_pShonRequestsPanel->setGeometry(topLeft.x(), topLeft.y(), kPanelWidth, height() - top);
+}
+
+void MixxxMainWindow::moveEvent(QMoveEvent* pEvent) {
+    QMainWindow::moveEvent(pEvent);
+    shonPlaceRequestsPanel();
+}
+
+void MixxxMainWindow::resizeEvent(QResizeEvent* pEvent) {
+    QMainWindow::resizeEvent(pEvent);
+    shonPlaceRequestsPanel();
 }
 
 void MixxxMainWindow::shonShowNotice(const QString& text) {

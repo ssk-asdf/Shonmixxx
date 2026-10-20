@@ -120,6 +120,10 @@ class WSpinnyBase : public WGLWidget,
     parented_ptr<ControlProxy> m_pSignalEnabled;
     parented_ptr<ControlProxy> m_pSlipEnabled;
     parented_ptr<ControlProxy> m_pShowCoverProxy;
+    // Shon stealth mode: plain record label instead of the album art.
+    parented_ptr<ControlProxy> m_pShonStealth;
+    parented_ptr<ControlProxy> m_pShonStealthPeek;
+    void shonRebuildRecord();
 
     TrackPointer m_pLoadedTrack;
     QPixmap m_loadedCover;

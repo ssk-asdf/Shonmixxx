@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <memory>
@@ -107,6 +108,8 @@ class MixxxMainWindow : public QMainWindow {
     /// Event filter to block certain events (eg. tooltips if tooltips are disabled)
     bool eventFilter(QObject *obj, QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent* pEvent) override;
+    void moveEvent(QMoveEvent* pEvent) override;
 
   private:
     void initializeWindow();
@@ -176,4 +179,8 @@ class MixxxMainWindow : public QMainWindow {
     QStringList m_shonOutputNames;
     QLabel* m_pShonNotice = nullptr;
     QTimer* m_pShonNoticeTimer = nullptr;
+    QWidget* m_pShonRequestsPanel = nullptr;
+    QPointer<QWidget> m_pShonRequestsSlot;
+    QObject* m_pShonSlotWatcher = nullptr;
+    void shonPlaceRequestsPanel();
 };

@@ -1,4 +1,5 @@
 #include "library/basetracktablemodel.h"
+#include "util/shonstealth.h"
 
 #include <QBuffer>
 #include <cmath>
@@ -651,6 +652,22 @@ QVariant BaseTrackTableModel::roleValue(
     const auto field = mapColumn(index.column());
     if (field == ColumnCache::COLUMN_LIBRARYTABLE_INVALID) {
         return rawValue;
+    }
+    // Shon stealth: dots instead of names. Hovering a cell shows the real
+    // name in a tooltip so you can still find your track.
+    if ((role == Qt::DisplayRole || role == Qt::ToolTipRole) && shonStealthActive()) {
+        switch (field) {
+        case ColumnCache::COLUMN_LIBRARYTABLE_TITLE:
+        case ColumnCache::COLUMN_LIBRARYTABLE_ARTIST:
+        case ColumnCache::COLUMN_LIBRARYTABLE_ALBUM:
+        case ColumnCache::COLUMN_LIBRARYTABLE_ALBUMARTIST:
+        case ColumnCache::COLUMN_LIBRARYTABLE_COMPOSER:
+        case ColumnCache::COLUMN_TRACKLOCATIONSTABLE_LOCATION:
+            return role == Qt::DisplayRole ? QVariant(shonStealthMask(rawValue.toString()))
+                                           : QVariant(rawValue.toString());
+        default:
+            break;
+        }
     }
     switch (role) {
     case Qt::ToolTipRole:

@@ -226,6 +226,8 @@ class Library: public QObject {
     bool m_shonMatchesActive = false;
     std::unique_ptr<ControlObject> m_pShonAwayMode;
     parented_ptr<ShonRequests> m_pShonRequests;
+    std::unique_ptr<ControlObject> m_pShonStealth;
+    std::unique_ptr<ControlObject> m_pShonStealthPeek;
     QTimer* m_pShonAwayTimer = nullptr;
     void shonAwayAddTracks(int count);
     void shonApplyMatchesFilter(TrackPointer pTrack);

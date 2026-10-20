@@ -533,6 +533,16 @@
               </Children>
             </WidgetStack>
             <Template src="skin:/skin_settings.xml"/>
+            <!-- Shon: space for the song requests panel. It pushes the rest of
+                 the skin over, the panel itself is drawn by ShonDJ on top. -->
+            <WidgetGroup>
+              <ObjectName>ShonRequestsSlot</ObjectName>
+              <Size>360f,1me</Size>
+              <Connection>
+                <ConfigKey>[Shon],requests_window</ConfigKey>
+                <BindProperty>visible</BindProperty>
+              </Connection>
+            </WidgetGroup>
 
           </Children>
         </WidgetGroup><!-- regular/maximized library + skin settings menu -->

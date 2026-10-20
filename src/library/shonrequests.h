@@ -49,16 +49,17 @@ class ShonRequests : public QObject {
         int key = 0;
     };
 
-  protected:
-    bool eventFilter(QObject* pObject, QEvent* pEvent) override;
+    /// Builds the inbox panel shown at the right side of the main window.
+    QWidget* createView(QWidget* pParent);
+    void onViewShown();
 
   signals:
     /// Short text for the bottom-right notice in the main window.
     void notice(const QString& text);
+    /// The top bar REQUESTS button: show or hide the side panel.
+    void panelVisibilityRequested(bool visible);
 
   private:
-    void showWindow(bool show);
-    void buildWindow();
     void setOpen(bool open);
     void newParty();
     void poll();
@@ -69,14 +70,23 @@ class ShonRequests : public QObject {
     void showBigQr();
     void updateHeader();
     void matchInLibrary(Request* pRequest);
+    void uploadCatalog();
     QString relayUrl() const;
     QString guestUrl() const;
+    QString screenUrl() const;
+    QString handle() const;
+    void claimHandle();
+    void copyLink();
+    void saveQrImage();
 
     UserSettingsPointer m_pConfig;
     Library* m_pLibrary;
     TrackCollectionManager* m_pTrackCollectionManager;
     QNetworkAccessManager* m_pNetwork;
     QTimer* m_pPollTimer;
+    QTimer* m_pCatalogTimer = nullptr;
+    QString m_catalogSignature;
+    int m_catalogCount = 0;
     std::unique_ptr<ControlPushButton> m_pShowWindow;
 
     QString m_code;
@@ -95,7 +105,10 @@ class ShonRequests : public QObject {
     QSvgWidget* m_pQr = nullptr;
     QLabel* m_pLinkLabel = nullptr;
     QLineEdit* m_pRelayEdit = nullptr;
+    QLineEdit* m_pHandleEdit = nullptr;
+    QLabel* m_pScreenLabel = nullptr;
     QWidget* m_pSetupBox = nullptr;
     QListWidget* m_pList = nullptr;
     QByteArray m_qrSvg;
 };
+

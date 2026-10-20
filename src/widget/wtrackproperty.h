@@ -9,6 +9,7 @@
 #include "widget/trackdroptarget.h"
 #include "widget/wlabel.h"
 
+class ControlProxy;
 class ControlPushButton;
 class Library;
 class WTrackMenu;
@@ -103,4 +104,7 @@ class WTrackProperty : public WLabel, public TrackDropTarget {
     parented_ptr<WTrackPropertyEditor> m_pEditor;
 
     parented_ptr<WTrackMenu> m_pTrackMenu;
+    // Shon stealth mode: relabel when it turns on or off.
+    parented_ptr<ControlProxy> m_pShonStealth;
+    parented_ptr<ControlProxy> m_pShonStealthPeek;
 };

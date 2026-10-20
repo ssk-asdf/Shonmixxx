@@ -1,6 +1,12 @@
 #include "library/shonrequests.h"
 
 #include <QApplication>
+#include <QSvgRenderer>
+#include <QStandardPaths>
+#include <QPainter>
+#include <QImage>
+#include <QFileDialog>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDrag>
@@ -29,6 +35,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVBoxLayout>
+#include <QVariant>
 #include <algorithm>
 #include <cmath>
 
@@ -48,12 +55,18 @@ const ConfigKey kRelayUrlKey(kGroup, QStringLiteral("requests_relay_url"));
 const ConfigKey kCodeKey(kGroup, QStringLiteral("requests_code"));
 const ConfigKey kHostKeyKey(kGroup, QStringLiteral("requests_key"));
 const ConfigKey kShopUrlKey(kGroup, QStringLiteral("requests_shop_url"));
+const ConfigKey kOpenKey(kGroup, QStringLiteral("requests_open"));
+const ConfigKey kCrateKey(kGroup, QStringLiteral("requests_crate"));
+const ConfigKey kHandleKey(kGroup, QStringLiteral("requests_handle"));
+const ConfigKey kHandleSecretKey(kGroup, QStringLiteral("requests_handle_key"));
+const QString kDefaultCrate = QStringLiteral("Requestable");
+constexpr int kCatalogMs = 60 * 1000;
 const QString kDefaultShopUrl = QStringLiteral("https://www.beatport.com/search?q=%1");
 constexpr int kPollMs = 3000;
 constexpr int kRoleLocation = Qt::UserRole + 1;
 
 const char* const kWindowStyle = R"(
-QWidget#ShonRequestsWindow { background: #151517; }
+QWidget#ShonRequestsWindow { background: #151517; border-left: 1px solid #2a2a2e; }
 QLabel { color: #e6e6e6; }
 QLabel#ShonReqTitle { font-size: 18px; font-weight: 600; color: #ffffff; }
 QLabel#ShonReqDim { color: #8a8a92; }
@@ -61,6 +74,7 @@ QLabel#ShonReqSong { font-size: 14px; font-weight: 600; color: #ffffff; }
 QLabel#ShonReqMatch { color: #8a8a92; }
 QLabel#ShonReqMatch[fits="true"] { color: #8fb0ff; }
 QLabel#ShonReqLink { color: #8fb0ff; }
+QWidget#ShonReqQrCard { background: #ffffff; border-radius: 10px; }
 QPushButton { background: #26262b; color: #e6e6e6; border: 1px solid #36363d;
   border-radius: 6px; padding: 5px 12px; }
 QPushButton:hover { background: #2e2e34; }
@@ -181,6 +195,12 @@ class ShonBigQr : public QWidget {
     }
 };
 
+// The side panel.
+class ShonRequestsView : public QWidget {
+  public:
+    using QWidget::QWidget;
+};
+
 } // namespace
 
 ShonRequests::ShonRequests(UserSettingsPointer pConfig,
@@ -199,23 +219,53 @@ ShonRequests::ShonRequests(UserSettingsPointer pConfig,
         newParty();
     }
 
-    // [Shon],requests_window opens the inbox (toolbar button).
+    // [Shon],requests_window shows or hides the side panel (top bar button).
     m_pShowWindow = std::make_unique<ControlPushButton>(
             ConfigKey(kGroup, QStringLiteral("requests_window")));
     m_pShowWindow->setButtonMode(mixxx::control::ButtonMode::Toggle);
     connect(m_pShowWindow.get(), &ControlObject::valueChanged, this, [this](double value) {
-        showWindow(value > 0.0);
+        emit panelVisibilityRequested(value > 0.0);
+        if (value > 0.0) {
+            onViewShown();
+        }
     });
 
     m_pPollTimer->setInterval(kPollMs);
     connect(m_pPollTimer, &QTimer::timeout, this, &ShonRequests::poll);
-}
+    m_pCatalogTimer = new QTimer(this);
+    m_pCatalogTimer->setInterval(kCatalogMs);
+    connect(m_pCatalogTimer, &QTimer::timeout, this, &ShonRequests::uploadCatalog);
+    m_pCatalogTimer->start();
 
-ShonRequests::~ShonRequests() {
-    if (m_pWindow) {
-        delete m_pWindow;
+    // A requested song that starts playing gets marked Played by itself.
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::currentPlayingTrackChanged,
+            this,
+            [this](TrackPointer pTrack) {
+                if (!pTrack || !m_open) {
+                    return;
+                }
+                const QString location = pTrack->getLocation();
+                QStringList played;
+                for (const Request& request : std::as_const(m_requests)) {
+                    if (request.inLibrary && request.location == location) {
+                        played << request.id;
+                    }
+                }
+                for (const QString& id : std::as_const(played)) {
+                    setStatus(id, QStringLiteral("played"));
+                }
+            });
+
+    // Requests were on when ShonDJ last closed: turn them back on.
+    if (m_pConfig->getValue(kOpenKey, false) && !relayUrl().isEmpty()) {
+        QTimer::singleShot(3000, this, [this]() {
+            setOpen(true);
+        });
     }
 }
+
+ShonRequests::~ShonRequests() = default;
 
 QString ShonRequests::relayUrl() const {
     QString url = m_pConfig->getValueString(kRelayUrlKey).trimmed();
@@ -225,8 +275,108 @@ QString ShonRequests::relayUrl() const {
     return url;
 }
 
+QString ShonRequests::handle() const {
+    const QString name = m_pConfig->getValueString(kHandleKey).trimmed().toLower();
+    static const QRegularExpression kValid(QStringLiteral("^[a-z0-9-]{2,20}$"));
+    return kValid.match(name).hasMatch() ? name : QString();
+}
+
 QString ShonRequests::guestUrl() const {
+    // A permanent link never changes, so printed QR codes keep working.
+    if (!handle().isEmpty()) {
+        return relayUrl() + QStringLiteral("/dj/") + handle();
+    }
     return relayUrl() + QStringLiteral("/p/") + m_code;
+}
+
+QString ShonRequests::screenUrl() const {
+    if (!handle().isEmpty()) {
+        return relayUrl() + QStringLiteral("/show/dj/") + handle();
+    }
+    return relayUrl() + QStringLiteral("/show/") + m_code;
+}
+
+void ShonRequests::claimHandle() {
+    // Points the permanent link at the current party code.
+    if (handle().isEmpty() || relayUrl().isEmpty()) {
+        return;
+    }
+    QString secret = m_pConfig->getValueString(kHandleSecretKey);
+    if (secret.size() < 16) {
+        secret = randomString(32,
+                QStringLiteral("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"));
+        m_pConfig->setValue(kHandleSecretKey, secret);
+    }
+    QNetworkRequest request(QUrl(relayUrl() + QStringLiteral("/api/handle/") + handle()));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    QJsonObject body;
+    body.insert(QStringLiteral("secret"), secret);
+    body.insert(QStringLiteral("code"), m_code);
+    QNetworkReply* pReply =
+            m_pNetwork->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(pReply, &QNetworkReply::finished, this, [this, pReply]() {
+        pReply->deleteLater();
+        if (pReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 403) {
+            emit notice(QStringLiteral(
+                    "Requests: that link name is taken, pick another one"));
+        }
+    });
+}
+
+void ShonRequests::copyLink() {
+    QApplication::clipboard()->setText(guestUrl());
+    emit notice(QStringLiteral("Requests: link copied"));
+}
+
+void ShonRequests::saveQrImage() {
+    if (m_qrSvg.isEmpty()) {
+        loadQr();
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(m_pWindow,
+            QStringLiteral("Save request QR"),
+            QStandardPaths::writableLocation(QStandardPaths::PicturesLocation) +
+                    QStringLiteral("/ShonDJ requests.png"),
+            QStringLiteral("PNG image (*.png)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    // A phone-story sized poster: logo, title, QR on a white card, link.
+    QImage poster(1080, 1350, QImage::Format_ARGB32_Premultiplied);
+    poster.fill(QColor(15, 15, 17));
+    QPainter p(&poster);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    const QPixmap logo(QStringLiteral(":/images/shondj-logo.png"));
+    if (!logo.isNull()) {
+        const QPixmap scaled = logo.scaledToHeight(110, Qt::SmoothTransformation);
+        p.drawPixmap((poster.width() - scaled.width()) / 2, 90, scaled);
+    }
+    QFont titleFont = p.font();
+    titleFont.setPixelSize(64);
+    titleFont.setBold(true);
+    p.setFont(titleFont);
+    p.setPen(Qt::white);
+    p.drawText(QRect(0, 250, poster.width(), 90), Qt::AlignCenter,
+            QStringLiteral("Scan to request a song"));
+    const QRect card(190, 380, 700, 700);
+    p.setPen(Qt::NoPen);
+    p.setBrush(Qt::white);
+    p.drawRoundedRect(card, 40, 40);
+    QSvgRenderer renderer(m_qrSvg);
+    renderer.render(&p, QRectF(card.adjusted(40, 40, -40, -40)));
+    QFont linkFont = p.font();
+    linkFont.setPixelSize(34);
+    linkFont.setBold(false);
+    p.setFont(linkFont);
+    p.setPen(QColor(138, 138, 146));
+    QString link = guestUrl();
+    link.remove(QRegularExpression(QStringLiteral("^https?://")));
+    p.drawText(QRect(40, 1130, poster.width() - 80, 80), Qt::AlignCenter, link);
+    p.end();
+    if (poster.save(path, "PNG")) {
+        emit notice(QStringLiteral("Requests: QR image saved"));
+    }
 }
 
 void ShonRequests::newParty() {
@@ -245,6 +395,7 @@ void ShonRequests::newParty() {
         m_open = false;
         setOpen(true);
     }
+    claimHandle();
     if (m_pWindow) {
         loadQr();
         rebuildList();
@@ -252,42 +403,47 @@ void ShonRequests::newParty() {
     }
 }
 
-void ShonRequests::showWindow(bool show) {
-    if (!show) {
-        if (m_pWindow) {
-            m_pWindow->hide();
-        }
-        return;
-    }
-    if (!m_pWindow) {
-        buildWindow();
-    }
-    m_pWindow->show();
-    m_pWindow->raise();
-    m_pWindow->activateWindow();
+void ShonRequests::onViewShown() {
     if (m_qrSvg.isEmpty()) {
         loadQr();
     }
+    updateHeader();
 }
 
-void ShonRequests::buildWindow() {
-    auto* pWindow = new QWidget(nullptr, Qt::Window);
+QWidget* ShonRequests::createView(QWidget* pParent) {
+    auto* pWindow = new ShonRequestsView(pParent);
     pWindow->setObjectName(QStringLiteral("ShonRequestsWindow"));
-    pWindow->setWindowTitle(QStringLiteral("ShonDJ Requests"));
+    pWindow->setAttribute(Qt::WA_StyledBackground, true);
     pWindow->setStyleSheet(QString::fromUtf8(kWindowStyle));
-    pWindow->resize(560, 680);
     m_pWindow = pWindow;
 
     auto* pLayout = new QVBoxLayout(pWindow);
-    pLayout->setContentsMargins(16, 16, 16, 16);
+    pLayout->setContentsMargins(16, 10, 16, 16);
     pLayout->setSpacing(12);
 
-    // Header: title, status, open/close and new party.
-    auto* pHeader = new QHBoxLayout();
+    // Title row with a close button.
+    auto* pTitleRow = new QHBoxLayout();
     auto* pTitle = new QLabel(QStringLiteral("Song requests"), pWindow);
     pTitle->setObjectName(QStringLiteral("ShonReqTitle"));
+    auto* pClose = new QPushButton(QStringLiteral("X"), pWindow);
+    pClose->setObjectName(QStringLiteral("ShonReqDismiss"));
+    pClose->setToolTip(QStringLiteral("Hide the panel. Requests keep coming in."));
+    connect(pClose, &QPushButton::clicked, this, [this]() {
+        // set() from code does not notify our own listener, so hide directly.
+        m_pShowWindow->set(0.0);
+        emit panelVisibilityRequested(false);
+    });
+    pTitleRow->addWidget(pTitle, 1);
+    pTitleRow->addWidget(pClose);
+    pLayout->addLayout(pTitleRow);
+
     m_pStatusLabel = new QLabel(pWindow);
     m_pStatusLabel->setObjectName(QStringLiteral("ShonReqDim"));
+    m_pStatusLabel->setWordWrap(true);
+    pLayout->addWidget(m_pStatusLabel);
+
+    // On/off and new party.
+    auto* pButtons = new QHBoxLayout();
     m_pOpenButton = new QPushButton(pWindow);
     m_pOpenButton->setObjectName(QStringLiteral("ShonReqOpen"));
     connect(m_pOpenButton, &QPushButton::clicked, this, [this]() {
@@ -297,20 +453,17 @@ void ShonRequests::buildWindow() {
     pNewParty->setToolTip(QStringLiteral(
             "New code and QR. Old links stop working and the inbox is cleared."));
     connect(pNewParty, &QPushButton::clicked, this, &ShonRequests::newParty);
-    pHeader->addWidget(pTitle);
-    pHeader->addSpacing(8);
-    pHeader->addWidget(m_pStatusLabel, 1);
-    pHeader->addWidget(m_pOpenButton);
-    pHeader->addWidget(pNewParty);
-    pLayout->addLayout(pHeader);
+    pButtons->addWidget(m_pOpenButton, 1);
+    pButtons->addWidget(pNewParty, 1);
+    pLayout->addLayout(pButtons);
 
     // One-time setup: where the relay lives.
     m_pSetupBox = new QWidget(pWindow);
-    auto* pSetup = new QHBoxLayout(m_pSetupBox);
-    pSetup->setContentsMargins(0, 0, 0, 0);
+    auto* pSetupRows = new QVBoxLayout(m_pSetupBox);
+    pSetupRows->setContentsMargins(0, 0, 0, 0);
+    auto* pSetup = new QHBoxLayout();
     m_pRelayEdit = new QLineEdit(relayUrl(), m_pSetupBox);
-    m_pRelayEdit->setPlaceholderText(
-            QStringLiteral("Relay link, e.g. https://shondj-requests.you.workers.dev"));
+    m_pRelayEdit->setPlaceholderText(QStringLiteral("Relay link (https://...workers.dev)"));
     auto* pSave = new QPushButton(QStringLiteral("Save"), m_pSetupBox);
     connect(pSave, &QPushButton::clicked, this, [this]() {
         m_pConfig->setValue(kRelayUrlKey, m_pRelayEdit->text().trimmed());
@@ -320,37 +473,74 @@ void ShonRequests::buildWindow() {
     });
     pSetup->addWidget(m_pRelayEdit, 1);
     pSetup->addWidget(pSave);
+    pSetupRows->addLayout(pSetup);
+    // Permanent link name, e.g. "shon" gives .../dj/shon for printed QR codes.
+    auto* pHandleRow = new QHBoxLayout();
+    m_pHandleEdit = new QLineEdit(handle(), m_pSetupBox);
+    m_pHandleEdit->setPlaceholderText(QStringLiteral("Permanent link name, e.g. shon"));
+    auto* pSaveHandle = new QPushButton(QStringLiteral("Save"), m_pSetupBox);
+    connect(pSaveHandle, &QPushButton::clicked, this, [this]() {
+        m_pConfig->setValue(kHandleKey, m_pHandleEdit->text().trimmed().toLower());
+        m_qrSvg.clear();
+        claimHandle();
+        loadQr();
+        updateHeader();
+    });
+    pHandleRow->addWidget(m_pHandleEdit, 1);
+    pHandleRow->addWidget(pSaveHandle);
+    pSetupRows->addLayout(pHandleRow);
     pLayout->addWidget(m_pSetupBox);
 
-    // QR code and link.
-    auto* pQrRow = new QHBoxLayout();
-    m_pQr = new QSvgWidget(pWindow);
-    m_pQr->setFixedSize(150, 150);
-    m_pQr->setStyleSheet(QStringLiteral("background: #ffffff; border-radius: 8px;"));
-    auto* pQrSide = new QVBoxLayout();
+    // QR code, then the link and the full screen button under it.
+    // White rounded card so the code reads cleanly on the dark panel.
+    auto* pQrCard = new QWidget(pWindow);
+    pQrCard->setObjectName(QStringLiteral("ShonReqQrCard"));
+    pQrCard->setAttribute(Qt::WA_StyledBackground, true);
+    auto* pQrCardLayout = new QVBoxLayout(pQrCard);
+    pQrCardLayout->setContentsMargins(10, 10, 10, 10);
+    m_pQr = new QSvgWidget(pQrCard);
+    m_pQr->setFixedSize(170, 170);
+    pQrCardLayout->addWidget(m_pQr);
+    pLayout->addSpacing(4);
+    pLayout->addWidget(pQrCard, 0, Qt::AlignHCenter);
     auto* pScan = new QLabel(QStringLiteral("Guests scan this to request a song."), pWindow);
+    pScan->setAlignment(Qt::AlignHCenter);
     pScan->setWordWrap(true);
+    pLayout->addWidget(pScan);
     m_pLinkLabel = new QLabel(pWindow);
     m_pLinkLabel->setObjectName(QStringLiteral("ShonReqLink"));
+    m_pLinkLabel->setAlignment(Qt::AlignHCenter);
     m_pLinkLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_pLinkLabel->setWordWrap(true);
-    auto* pBig = new QPushButton(QStringLiteral("Show QR full screen"), pWindow);
+    // A long link must never make the panel wider.
+    m_pLinkLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    pLayout->addWidget(m_pLinkLabel);
+    // Ways to get the QR out to people.
+    auto* pShareRow = new QHBoxLayout();
+    auto* pCopy = new QPushButton(QStringLiteral("Copy link"), pWindow);
+    pCopy->setToolTip(QStringLiteral("Paste it in a group chat or an Instagram story link"));
+    connect(pCopy, &QPushButton::clicked, this, &ShonRequests::copyLink);
+    auto* pSaveQr = new QPushButton(QStringLiteral("Save image"), pWindow);
+    pSaveQr->setToolTip(QStringLiteral("A poster to print, post or AirDrop"));
+    connect(pSaveQr, &QPushButton::clicked, this, &ShonRequests::saveQrImage);
+    auto* pBig = new QPushButton(QStringLiteral("Full screen"), pWindow);
     connect(pBig, &QPushButton::clicked, this, &ShonRequests::showBigQr);
+    pShareRow->addWidget(pCopy, 1);
+    pShareRow->addWidget(pSaveQr, 1);
+    pShareRow->addWidget(pBig, 1);
+    pLayout->addLayout(pShareRow);
+    m_pScreenLabel = new QLabel(pWindow);
+    m_pScreenLabel->setObjectName(QStringLiteral("ShonReqDim"));
+    m_pScreenLabel->setWordWrap(true);
+    m_pScreenLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    pLayout->addWidget(m_pScreenLabel);
     auto* pHint = new QLabel(
             QStringLiteral("Drag a request onto a deck to load it. Double-click to search "
                            "your library for it."),
             pWindow);
     pHint->setObjectName(QStringLiteral("ShonReqDim"));
     pHint->setWordWrap(true);
-    pQrSide->addWidget(pScan);
-    pQrSide->addWidget(m_pLinkLabel);
-    pQrSide->addWidget(pBig, 0, Qt::AlignLeft);
-    pQrSide->addStretch();
-    pQrSide->addWidget(pHint);
-    pQrRow->addWidget(m_pQr);
-    pQrRow->addSpacing(12);
-    pQrRow->addLayout(pQrSide, 1);
-    pLayout->addLayout(pQrRow);
+    pLayout->addSpacing(4);
+    pLayout->addWidget(pHint);
 
     // The inbox.
     m_pList = new ShonRequestList(pWindow);
@@ -359,28 +549,23 @@ void ShonRequests::buildWindow() {
     m_pList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_pList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     connect(m_pList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* pItem) {
-        const QString song = pItem->data(Qt::UserRole).toString();
-        if (m_pLibrary && !song.isEmpty()) {
-            m_pLibrary->searchTracksInCollection(song);
+        // Search with plain words: phones type curly quotes (Can’t) and
+        // extra bits like "feat." that would make the search find nothing.
+        const QString words =
+                searchWords(pItem->data(Qt::UserRole).toString()).join(QLatin1Char(' '));
+        if (m_pLibrary && !words.isEmpty()) {
+            m_pLibrary->searchTracksInCollection(words);
         }
     });
     pLayout->addWidget(m_pList, 1);
 
-    // Closing the window turns the toolbar button off.
-    pWindow->installEventFilter(this);
     connect(pWindow, &QObject::destroyed, this, [this]() {
         m_pList = nullptr;
     });
 
     updateHeader();
     rebuildList();
-}
-
-bool ShonRequests::eventFilter(QObject* pObject, QEvent* pEvent) {
-    if (pObject == m_pWindow && pEvent->type() == QEvent::Hide && m_pShowWindow) {
-        m_pShowWindow->set(0.0);
-    }
-    return QObject::eventFilter(pObject, pEvent);
+    return pWindow;
 }
 
 void ShonRequests::updateHeader() {
@@ -388,7 +573,13 @@ void ShonRequests::updateHeader() {
         return;
     }
     const bool configured = !relayUrl().isEmpty();
-    m_pSetupBox->setVisible(!configured || m_pRelayEdit->hasFocus());
+    m_pSetupBox->setVisible(!configured || handle().isEmpty() || m_pRelayEdit->hasFocus() ||
+            m_pHandleEdit->hasFocus());
+    QString screen = screenUrl();
+    screen.remove(QRegularExpression(QStringLiteral("^https?://")));
+    m_pScreenLabel->setText(configured
+                    ? QStringLiteral("On a TV, tablet or another laptop, open %1").arg(screen)
+                    : QString());
     m_pLinkLabel->setText(configured ? guestUrl()
                                      : QStringLiteral("Add your relay link above first."));
     m_pOpenButton->setText(m_open ? QStringLiteral("Requests ON") : QStringLiteral("Requests OFF"));
@@ -404,7 +595,10 @@ void ShonRequests::updateHeader() {
     } else if (!m_online) {
         status = QStringLiteral("code %1, offline, retrying").arg(m_code);
     } else {
-        status = QStringLiteral("code %1, %2 waiting").arg(m_code).arg(m_requests.size());
+        status = QStringLiteral("code %1, %2 waiting, %3 songs in your Requestable crate")
+                         .arg(m_code)
+                         .arg(m_requests.size())
+                         .arg(m_catalogCount);
     }
     m_pStatusLabel->setText(status);
 }
@@ -413,9 +607,13 @@ void ShonRequests::loadQr() {
     if (relayUrl().isEmpty() || !m_pWindow) {
         return;
     }
-    QNetworkReply* pReply = m_pNetwork->get(
-            QNetworkRequest(QUrl(relayUrl() + QStringLiteral("/qr/") + m_code +
-                    QStringLiteral(".svg"))));
+    QString qrUrl;
+    if (handle().isEmpty()) {
+        qrUrl = relayUrl() + QStringLiteral("/qr/") + m_code + QStringLiteral(".svg");
+    } else {
+        qrUrl = relayUrl() + QStringLiteral("/qr/dj/") + handle() + QStringLiteral(".svg");
+    }
+    QNetworkReply* pReply = m_pNetwork->get(QNetworkRequest(QUrl(qrUrl)));
     connect(pReply, &QNetworkReply::finished, this, [this, pReply]() {
         pReply->deleteLater();
         if (pReply->error() != QNetworkReply::NoError) {
@@ -454,8 +652,12 @@ void ShonRequests::setOpen(bool open) {
         if (pReply->error() == QNetworkReply::NoError) {
             m_open = open;
             m_online = true;
+            m_pConfig->setValue(kOpenKey, open ? 1 : 0);
             if (open) {
                 m_primed = false;
+                m_catalogSignature.clear();
+                uploadCatalog();
+                claimHandle();
                 m_pPollTimer->start();
                 poll();
                 emit notice(QStringLiteral("Requests: open (code %1)").arg(m_code));
@@ -506,6 +708,15 @@ void ShonRequests::handleRequests(const QByteArray& data) {
         Request request;
         request.id = item.value(QStringLiteral("id")).toString();
         request.song = item.value(QStringLiteral("song")).toString();
+        // The relay looks up the real title and artist, use those when it found them.
+        const QString title = item.value(QStringLiteral("title")).toString();
+        const QString artist = item.value(QStringLiteral("artist")).toString();
+        if (!title.isEmpty()) {
+            request.song = title;
+            if (!artist.isEmpty()) {
+                request.song += QStringLiteral(", ") + artist;
+            }
+        }
         request.votes = item.value(QStringLiteral("votes")).toInt(1);
         request.status = item.value(QStringLiteral("status")).toString();
         for (const QJsonValue& name : item.value(QStringLiteral("names")).toArray()) {
@@ -568,7 +779,8 @@ void ShonRequests::matchInLibrary(Request* pRequest) {
                     conditions.join(QStringLiteral(" AND ")) +
                     QStringLiteral(" ORDER BY library.timesplayed DESC LIMIT 1"));
             for (const QString& word : use) {
-                query.addBindValue(QStringLiteral("%") + word + QStringLiteral("%"));
+                const QString likePattern = QStringLiteral("%") + word + QStringLiteral("%");
+                query.addBindValue(likePattern);
             }
             if (query.exec() && query.next()) {
                 pRequest->inLibrary = true;
@@ -651,12 +863,14 @@ void ShonRequests::rebuildList() {
         pItem->setFlags(flags);
 
         auto* pRow = new QWidget(m_pList);
-        auto* pRowLayout = new QHBoxLayout(pRow);
-        pRowLayout->setContentsMargins(8, 8, 8, 8);
-        auto* pText = new QVBoxLayout();
+        auto* pText = new QVBoxLayout(pRow);
+        pText->setContentsMargins(8, 8, 8, 8);
         pText->setSpacing(2);
+        auto* pRowLayout = new QHBoxLayout();
+        pRowLayout->setContentsMargins(0, 6, 0, 0);
         auto* pSong = new QLabel(request.song, pRow);
         pSong->setObjectName(QStringLiteral("ShonReqSong"));
+        pSong->setWordWrap(true);
         QStringList who;
         if (!request.names.isEmpty()) {
             who << request.names.join(QStringLiteral(", "));
@@ -674,10 +888,11 @@ void ShonRequests::rebuildList() {
                 request.inLibrary ? request.matchText : QStringLiteral("Not in library"), pRow);
         pMatch->setObjectName(QStringLiteral("ShonReqMatch"));
         pMatch->setProperty("fits", request.fits);
+        pMatch->setWordWrap(true);
+        pWho->setWordWrap(true);
         pText->addWidget(pSong);
         pText->addWidget(pWho);
         pText->addWidget(pMatch);
-        pRowLayout->addLayout(pText, 1);
 
         if (!request.inLibrary) {
             auto* pFind = new QPushButton(QStringLiteral("Find"), pRow);
@@ -715,6 +930,8 @@ void ShonRequests::rebuildList() {
         pRowLayout->addWidget(pComing);
         pRowLayout->addWidget(pPlayed);
         pRowLayout->addWidget(pDismiss);
+        pRowLayout->addStretch();
+        pText->addLayout(pRowLayout);
 
         pItem->setSizeHint(pRow->sizeHint());
         m_pList->setItemWidget(pItem, pRow);
@@ -746,6 +963,56 @@ void ShonRequests::setStatus(const QString& id, const QString& status) {
     body.insert(QStringLiteral("key"), m_key);
     body.insert(QStringLiteral("id"), id);
     body.insert(QStringLiteral("status"), status);
+    QNetworkReply* pReply =
+            m_pNetwork->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(pReply, &QNetworkReply::finished, pReply, &QObject::deleteLater);
+}
+
+
+void ShonRequests::uploadCatalog() {
+    // Titles and artists from the "Requestable" crate, so guests get
+    // suggestions and a "DJ has it" answer. Nothing else leaves ShonDJ.
+    if (!m_open || relayUrl().isEmpty() || !m_pTrackCollectionManager) {
+        return;
+    }
+    QString crate = m_pConfig->getValueString(kCrateKey).trimmed();
+    if (crate.isEmpty()) {
+        crate = kDefaultCrate;
+    }
+    QSqlQuery query(m_pTrackCollectionManager->internalCollection()->database());
+    query.prepare(QStringLiteral(
+            "SELECT library.title, library.artist FROM crate_tracks "
+            "JOIN crates ON crate_tracks.crate_id = crates.id "
+            "JOIN library ON library.id = crate_tracks.track_id "
+            "WHERE lower(crates.name) = lower(?) AND library.mixxx_deleted = 0 "
+            "ORDER BY library.artist, library.title LIMIT 5000"));
+    query.addBindValue(crate);
+    QJsonArray tracks;
+    QString signature;
+    if (query.exec()) {
+        while (query.next()) {
+            QJsonObject track;
+            const QString title = query.value(0).toString();
+            const QString artist = query.value(1).toString();
+            track.insert(QStringLiteral("t"), title);
+            track.insert(QStringLiteral("a"), artist);
+            tracks.append(track);
+            signature += title + QLatin1Char('|') + artist + QLatin1Char(';');
+        }
+    }
+    m_catalogCount = tracks.size();
+    if (signature == m_catalogSignature) {
+        return;
+    }
+    m_catalogSignature = signature;
+    updateHeader();
+
+    QNetworkRequest request(QUrl(relayUrl() + QStringLiteral("/api/p/") + m_code +
+            QStringLiteral("/catalog")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    QJsonObject body;
+    body.insert(QStringLiteral("key"), m_key);
+    body.insert(QStringLiteral("tracks"), tracks);
     QNetworkReply* pReply =
             m_pNetwork->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(pReply, &QNetworkReply::finished, pReply, &QObject::deleteLater);

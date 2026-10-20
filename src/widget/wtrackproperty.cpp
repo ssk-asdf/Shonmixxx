@@ -6,10 +6,12 @@
 #include <QStyleOption>
 
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
 #include "moc_wtrackproperty.cpp"
 #include "skin/legacy/skincontext.h"
 #include "track/track.h"
 #include "util/dnd.h"
+#include "util/shonstealth.h"
 #include "widget/wtrackmenu.h"
 
 namespace {
@@ -34,6 +36,16 @@ WTrackProperty::WTrackProperty(
           m_bSelected(false),
           m_pEditor(nullptr) {
     setAcceptDrops(true);
+    m_pShonStealth = make_parented<ControlProxy>(
+            shonStealthKey(), this, ControlFlag::NoAssertIfMissing);
+    m_pShonStealth->connectValueChanged(this, [this](double) {
+        updateLabel();
+    });
+    m_pShonStealthPeek = make_parented<ControlProxy>(
+            shonStealthPeekKey(), this, ControlFlag::NoAssertIfMissing);
+    m_pShonStealthPeek->connectValueChanged(this, [this](double) {
+        updateLabel();
+    });
 }
 
 WTrackProperty::~WTrackProperty() {
@@ -101,7 +113,20 @@ void WTrackProperty::slotTrackChanged(TrackId trackId) {
 
 void WTrackProperty::updateLabel() {
     if (m_pCurrentTrack) {
-        setText(getPropertyStringFromTrack(m_displayProperty));
+        const QString text = getPropertyStringFromTrack(m_displayProperty);
+        // Shon stealth: hide anything that names the song.
+        static const QStringList kHidden = {QStringLiteral("title"),
+                QStringLiteral("artist"),
+                QStringLiteral("album"),
+                QStringLiteral("albumArtist"),
+                QStringLiteral("composer"),
+                QStringLiteral("titleInfo"),
+                QStringLiteral("info")};
+        if (shonStealthActive() && kHidden.contains(m_displayProperty)) {
+            setText(shonStealthMask(text));
+            return;
+        }
+        setText(text);
         return;
     }
     setText("");

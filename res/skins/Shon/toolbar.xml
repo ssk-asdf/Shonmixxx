@@ -255,6 +255,24 @@
           </PushButton>
           <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
           <PushButton>
+            <Tooltip>Stealth mode: hide song names and covers (Ctrl+H). Hold right-click to peek.</Tooltip>
+            <ObjectName>ShonStealthButton</ObjectName>
+            <Size>28f,24f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number></State>
+            <State><Number>1</Number></State>
+            <Connection>
+              <ConfigKey>[Shon],stealth</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+            <Connection>
+              <ConfigKey>[Shon],stealth_peek</ConfigKey>
+              <ButtonState>RightButton</ButtonState>
+              <ConnectValueToWidget>false</ConnectValueToWidget>
+            </Connection>
+          </PushButton>
+          <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+          <PushButton>
             <TooltipId>skin_settings</TooltipId>
             <ObjectName>ShonSettingsButton</ObjectName>
             <Size>28f,24f</Size>

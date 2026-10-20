@@ -7,6 +7,7 @@
 #include <QRadialGradient>
 #include <QtDebug>
 
+#include "util/shonstealth.h"
 #include "control/controlproxy.h"
 #include "library/coverartcache.h"
 #include "library/coverartutils.h"
@@ -195,6 +196,18 @@ void WSpinnyBase::setup(const QDomNode& node,
     m_bDrawVinylSignalQuality = false;
 #endif
 
+    m_pShonStealth = make_parented<ControlProxy>(
+            shonStealthKey(), this, ControlFlag::NoAssertIfMissing);
+    m_pShonStealthPeek = make_parented<ControlProxy>(
+            shonStealthPeekKey(), this, ControlFlag::NoAssertIfMissing);
+    const auto shonRefresh = [this](double) {
+        shonRebuildRecord();
+        coverChanged();
+        update();
+    };
+    m_pShonStealth->connectValueChanged(this, shonRefresh);
+    m_pShonStealthPeek->connectValueChanged(this, shonRefresh);
+
     m_pSlipEnabled = make_parented<ControlProxy>(
             m_group, "slip_enabled", this, ControlFlag::NoAssertIfMissing);
     m_pSlipEnabled->connectValueChanged(this, &WSpinnyBase::updateSlipEnabled);
@@ -302,7 +315,17 @@ QPixmap shonMakeRecord(const QPixmap& cover, const QSize& widgetSize, qreal dpr)
 
 void WSpinnyBase::setLoadedCover(const QPixmap& pixmap) {
     m_loadedCover = pixmap;
-    m_loadedCoverScaled = shonMakeRecord(pixmap, size(), devicePixelRatioF());
+    shonRebuildRecord();
+}
+
+void WSpinnyBase::shonRebuildRecord() {
+    QPixmap label = m_loadedCover;
+    if (!label.isNull() && shonStealthActive()) {
+        // Stealth: a plain dark label so the art can't give the song away.
+        label = QPixmap(64, 64);
+        label.fill(QColor(42, 42, 48));
+    }
+    m_loadedCoverScaled = shonMakeRecord(label, size(), devicePixelRatioF());
 }
 
 void WSpinnyBase::slotLoadTrack(TrackPointer pTrack) {
@@ -445,7 +468,7 @@ QPixmap WSpinnyBase::scaleToSize(const QPixmap& pixmap) const {
 }
 
 void WSpinnyBase::resizeEvent(QResizeEvent* event) {
-    m_loadedCoverScaled = shonMakeRecord(m_loadedCover, size(), devicePixelRatioF());
+    shonRebuildRecord();
     m_fgImageScaled = scaleToSize(m_pFgImage);
     m_ghostImageScaled = scaleToSize(m_pGhostImage);
 

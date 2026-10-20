@@ -10,6 +10,7 @@
 #include "moc_coverartdelegate.cpp"
 #include "track/track.h"
 #include "util/logger.h"
+#include "util/shonstealth.h"
 #include "util/make_const_iterator.h"
 
 namespace {
@@ -126,6 +127,10 @@ void CoverArtDelegate::paintItem(
         const QStyleOptionViewItem& option,
         const QModelIndex& index) const {
     VERIFY_OR_DEBUG_ASSERT(m_pTrackModel) {
+        return;
+    }
+    if (shonStealthActive()) {
+        // Shon stealth: covers give songs away, leave the cell empty.
         return;
     }
     CoverInfo coverInfo = m_pTrackModel->getCoverInfo(index);

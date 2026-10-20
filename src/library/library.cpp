@@ -1,6 +1,7 @@
 #include "library/library.h"
 #include "library/shonrequests.h"
 
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QDir>
 #include <QMessageBox>
@@ -112,6 +113,30 @@ Library::Library(
 
     m_pAutoDJFeature = make_parented<AutoDJFeature>(this, m_pConfig, pPlayerManager);
     addFeature(m_pAutoDJFeature);
+
+    // Shon: stealth mode hides song names and covers. Remembered between
+    // sessions. Holding stealth_peek shows them while held.
+    m_pShonStealth = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("stealth")), true);
+    static_cast<ControlPushButton*>(m_pShonStealth.get())
+            ->setButtonMode(mixxx::control::ButtonMode::Toggle);
+    m_pShonStealthPeek = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("stealth_peek")));
+    const auto shonRepaintTables = [](double) {
+        // Track tables read stealth on paint, so a repaint is enough.
+        const auto widgets = QApplication::allWidgets();
+        for (QWidget* pWidget : widgets) {
+            if (auto* pView = qobject_cast<QAbstractItemView*>(pWidget)) {
+                pView->viewport()->update();
+            }
+        }
+    };
+    connect(m_pShonStealth.get(), &ControlObject::valueChanged, this, shonRepaintTables);
+    connect(m_pShonStealthPeek.get(), &ControlObject::valueChanged, this, shonRepaintTables);
+
+    // Shon: guest song requests through a QR code, shown as "Requests".
+    m_pShonRequests = make_parented<ShonRequests>(
+            m_pConfig, this, m_pTrackCollectionManager.data(), this);
 
     m_pPlaylistFeature = make_parented<PlaylistFeature>(this, UserSettingsPointer(m_pConfig));
     addFeature(m_pPlaylistFeature);
@@ -296,10 +321,6 @@ Library::Library(
             &PlayerInfo::currentPlayingTrackChanged,
             this,
             &Library::slotShonPlayingTrackChanged);
-
-    // Shon: guest song requests through a QR code.
-    m_pShonRequests = make_parented<ShonRequests>(
-            m_pConfig, this, m_pTrackCollectionManager.data(), this);
 
     m_pShonAwayMode = std::make_unique<ControlPushButton>(
             ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("shon_away_mode")));

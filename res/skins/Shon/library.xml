@@ -93,6 +93,12 @@
                           <CoverArt>
                             <SizePolicy>me,me</SizePolicy>
                             <MinimumSize>40,40</MinimumSize>
+                            <!-- Shon: hidden in stealth mode -->
+                            <Connection>
+                              <ConfigKey>[Shon],stealth</ConfigKey>
+                              <Transform><Not/></Transform>
+                              <BindProperty>visible</BindProperty>
+                            </Connection>
                           </CoverArt>
                         </Children>
                         <Connection>
