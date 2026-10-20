@@ -1410,20 +1410,47 @@ void MixxxMainWindow::shonShowNotice(const QString& text) {
     if (!m_pShonNotice) {
         m_pShonNotice = new QLabel(this);
         m_pShonNotice->setStyleSheet(QStringLiteral(
-                "QLabel { background: rgba(21, 21, 23, 235); color: #e6e6e6; "
-                "border: 1px solid #2f6bff; border-radius: 8px; "
-                "padding: 8px 16px; font-size: 13px; }"));
+                "QLabel { background: rgba(21, 21, 23, 240); color: #e6e6e6; "
+                "border: 1px solid #2a2a2e; border-left: 3px solid #2f6bff; "
+                "border-radius: 6px; padding: 10px 14px; font-size: 12px; }"));
         m_pShonNotice->setAttribute(Qt::WA_TransparentForMouseEvents);
-        m_pShonNotice->setAlignment(Qt::AlignCenter);
+        m_pShonNotice->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        m_pShonNotice->setTextFormat(Qt::RichText);
+        m_pShonNotice->setWordWrap(true);
+        m_pShonNotice->setFixedWidth(260);
         m_pShonNoticeTimer = new QTimer(m_pShonNotice);
         m_pShonNoticeTimer->setSingleShot(true);
         m_pShonNoticeTimer->setInterval(4000);
         connect(m_pShonNoticeTimer, &QTimer::timeout, m_pShonNotice, &QLabel::hide);
     }
-    m_pShonNotice->setText(text);
+    // "Audio: Device (detail)" becomes a small card:
+    // a title line, the device name, and the detail in grey.
+    QString body = text;
+    QString title = QStringLiteral("ShonDJ");
+    const int colon = body.indexOf(QStringLiteral(": "));
+    if (colon > 0) {
+        title = body.left(colon);
+        body = body.mid(colon + 2);
+    }
+    QString detail;
+    const int paren = body.lastIndexOf(QStringLiteral(" ("));
+    if (paren > 0 && body.endsWith(QLatin1Char(')'))) {
+        detail = body.mid(paren + 2, body.size() - paren - 3);
+        body = body.left(paren);
+    }
+    QString html = QStringLiteral(
+            "<div style='color:#2f6bff; font-weight:600; font-size:11px;'>%1</div>"
+            "<div style='color:#ffffff; font-size:13px; margin-top:2px;'>%2</div>")
+                           .arg(title.toUpper().toHtmlEscaped(), body.toHtmlEscaped());
+    if (!detail.isEmpty()) {
+        html += QStringLiteral("<div style='color:#9a9aa2; margin-top:2px;'>%1</div>")
+                        .arg(detail.toHtmlEscaped());
+    }
+    m_pShonNotice->setText(html);
     m_pShonNotice->adjustSize();
-    m_pShonNotice->move((width() - m_pShonNotice->width()) / 2,
-            height() - m_pShonNotice->height() - 48);
+    constexpr int kMargin = 16;
+    m_pShonNotice->move(width() - m_pShonNotice->width() - kMargin,
+            height() - m_pShonNotice->height() - kMargin);
     m_pShonNotice->raise();
     m_pShonNotice->show();
     m_pShonNoticeTimer->start();
