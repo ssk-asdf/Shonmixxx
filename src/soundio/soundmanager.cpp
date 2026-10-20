@@ -128,6 +128,45 @@ int shonDjDeviceScore(const QString& name, int outputChannels) {
     }
     return 1;
 }
+
+// Outputs that are not real speakers or headphones.
+[[maybe_unused]] bool shonIsVirtualOutput(const QString& lower) {
+    static const char* const kVirtual[] = {"primary sound",
+            "voicemeeter",
+            "virtual",
+            "vb-audio",
+            "cable",
+            "steam",
+            "oculus",
+            "digital output",
+            "spdif",
+            "s/pdif",
+            "broadcast",
+            "hands-free"};
+    for (const char* pName : kVirtual) {
+        if (lower.contains(QLatin1String(pName))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The laptop's own speakers and headphone jack.
+[[maybe_unused]] bool shonIsBuiltInOutput(const QString& lower) {
+    static const char* const kBuiltIn[] = {"realtek",
+            "conexant",
+            "synaptics",
+            "cirrus",
+            "senary",
+            "smart sound",
+            "high definition audio device"};
+    for (const char* pName : kBuiltIn) {
+        if (lower.contains(QLatin1String(pName))) {
+            return true;
+        }
+    }
+    return false;
+}
 } // anonymous namespace
 
 SoundManager::SoundManager(
@@ -697,6 +736,59 @@ SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool
         }
         return config;
     }
+
+#ifdef __WINDOWS__
+    // Laptop plus outside speakers (USB sound card, HDMI TV): Main goes to
+    // the speakers and the laptop's own jack becomes the headphone cue.
+    if (!laptopOnly && apis.contains(SoundManagerConfig::kAPIDirectSound)) {
+        SoundDevicePointer pBuiltIn;
+        SoundDevicePointer pExternal;
+        const QList<SoundDevicePointer> devices =
+                getDeviceList(SoundManagerConfig::kAPIDirectSound, true, false);
+        for (const auto& pDevice : devices) {
+            if (pDevice->getNumOutputChannels().value() < 2) {
+                continue;
+            }
+            const QString lower = pDevice->getDisplayName().toLower();
+            if (shonIsVirtualOutput(lower)) {
+                continue;
+            }
+            if (shonIsBuiltInOutput(lower)) {
+                if (!pBuiltIn) {
+                    pBuiltIn = pDevice;
+                }
+            } else if (!pExternal) {
+                pExternal = pDevice;
+            }
+        }
+        if (pBuiltIn && pExternal) {
+            config.setAPI(SoundManagerConfig::kAPIDirectSound);
+            config.clearOutputs();
+            config.clearInputs();
+            config.addOutput(pExternal->getDeviceId(),
+                    AudioOutput(AudioPathType::Main,
+                            0,
+                            mixxx::audio::ChannelCount::stereo(),
+                            0));
+            config.addOutput(pBuiltIn->getDeviceId(),
+                    AudioOutput(AudioPathType::Headphones,
+                            0,
+                            mixxx::audio::ChannelCount::stereo(),
+                            0));
+            const QList<mixxx::audio::SampleRate> rates =
+                    getSampleRates(SoundManagerConfig::kAPIDirectSound);
+            const mixxx::audio::SampleRate rate = pExternal->getDefaultSampleRate();
+            if (rates.contains(rate)) {
+                config.setSampleRate(rate);
+            }
+            if (pDescription) {
+                *pDescription = QStringLiteral("Audio: %1 (cue on the laptop jack)")
+                                        .arg(pExternal->getDisplayName());
+            }
+            return config;
+        }
+    }
+#endif
 
     // Laptop only: Main on the system output, no headphone cue.
 #ifdef __WINDOWS__

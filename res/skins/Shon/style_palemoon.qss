@@ -1247,12 +1247,12 @@ WCueMenuPopup,
 WCueMenuPopup QLabel,
 #CueLabelEdit,
 WCoverArtMenu {
-  color: #c2b3a5;
+  color: #ffffff;
 }
 /* Override the 'missing' color in Tracks > Missing,
    it's not useful there */
 #DlgMissing WTrackTableView {
-  qproperty-trackMissingColor: #c2b3a5;
+  qproperty-trackMissingColor: #ffffff;
 }
 
   /* dim ivory / light brown */
@@ -3327,4 +3327,83 @@ WSearchLineEdit::indicator:unchecked:selected {
 }
 #SidebarBox {
   border-right: 1px solid #2a2a2e;
+}
+
+/* ===== Shon top bar ===== */
+#ToolBar WPushButton#ShonNav,
+#ToolBar WPushButton#ShonMode {
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 11px;
+  color: #8a8a92;
+  background-color: transparent;
+  border: none;
+  border-image: none;
+  border-radius: 6px;
+  margin: 0px;
+  padding: 0px;
+  outline: none;
+}
+#ToolBar WPushButton#ShonNav:hover,
+#ToolBar WPushButton#ShonMode:hover {
+  color: #e6e6e6;
+  background-color: #1f1f23;
+}
+#ToolBar WPushButton#ShonNav[displayValue="1"] {
+  color: #ffffff;
+  background-color: #2a2a30;
+}
+#ToolBar WPushButton#ShonMode[displayValue="1"] {
+  color: #ffffff;
+  background-color: #2f6bff;
+}
+
+#ToolBar WPushButton#ShonRecButton,
+#ToolBar WPushButton#ShonAirButton,
+#ToolBar WPushButton#ShonSettingsButton {
+  background-color: transparent;
+  border: none;
+  border-image: none;
+  border-radius: 6px;
+  margin: 0px;
+  padding: 0px;
+  outline: none;
+}
+#ToolBar WPushButton#ShonRecButton:hover,
+#ToolBar WPushButton#ShonAirButton:hover,
+#ToolBar WPushButton#ShonSettingsButton:hover {
+  background-color: #1f1f23;
+}
+#ToolBar WPushButton#ShonRecButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_rec_off.svg); }
+#ToolBar WPushButton#ShonRecButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_rec_wait.svg); }
+#ToolBar WPushButton#ShonRecButton[displayValue="2"] {
+  image: url(skin:/palemoon/buttons/shon_rec_on.svg);
+  background-color: rgba(255, 59, 48, 40);
+}
+#ToolBar WPushButton#ShonAirButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_air_off.svg); }
+#ToolBar WPushButton#ShonAirButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_air_wait.svg); }
+#ToolBar WPushButton#ShonAirButton[displayValue="2"] {
+  image: url(skin:/palemoon/buttons/shon_air_on.svg);
+  background-color: rgba(46, 204, 64, 40);
+}
+#ToolBar WPushButton#ShonAirButton[displayValue="3"],
+#ToolBar WPushButton#ShonAirButton[displayValue="4"] { image: url(skin:/palemoon/buttons/shon_air_err.svg); }
+#ToolBar WPushButton#ShonSettingsButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_gear_off.svg); }
+#ToolBar WPushButton#ShonSettingsButton[displayValue="1"] {
+  image: url(skin:/palemoon/buttons/shon_gear_on.svg);
+  background-color: #2a2a30;
+}
+
+#ShonRecTime {
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 12px;
+  color: #ff3b30;
+  padding-left: 4px;
+}
+#ShonToolbarDivider {
+  background-color: #2a2a2e;
+}
+#ToolBar WTime {
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 14px;
+  color: #ffffff;
 }
