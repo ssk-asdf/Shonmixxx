@@ -18,13 +18,29 @@
 
       <Template src="skin:/decks/vinyl_controls.xml"/>
 
+
       <WidgetGroup>
         <ObjectName>ExpandingBottomBorder</ObjectName>
         <SizePolicy>me,me</SizePolicy>
         <MinimumSize>2,1</MinimumSize>
       </WidgetGroup>
 
-      <WidgetGroup><Size>2f,0me</Size></WidgetGroup>
+      <WidgetGroup>
+        <ObjectName>Stars</ObjectName>
+        <Layout>vertical</Layout>
+        <Size>75f,0min</Size>
+        <Children>
+          <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+          <StarRating>
+            <TooltipId>starrating</TooltipId>
+            <Size>75f,15f</Size>
+            <Channel><Variable name="ChanNum"/></Channel>
+          </StarRating>
+          <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+        </Children>
+      </WidgetGroup>
+
+      <WidgetGroup><Size>8f,0me</Size></WidgetGroup>
 
       <WidgetGroup>
         <SizePolicy>me,min</SizePolicy>

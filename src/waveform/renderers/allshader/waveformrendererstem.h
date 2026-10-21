@@ -71,5 +71,13 @@ class allshader::WaveformRendererStem final
 
     bool preprocessInner();
 
+    // Shon: recorded stem levels for the level lines.
+    struct ShonPoint {
+        double pos = 0.0;
+        float level[mixxx::kMaxSupportedStems] = {};
+    };
+    std::vector<ShonPoint> m_shonHistory;
+    const void* m_pShonTrack = nullptr;
+
     DISALLOW_COPY_AND_ASSIGN(WaveformRendererStem);
 };

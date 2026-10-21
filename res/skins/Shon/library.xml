@@ -32,7 +32,18 @@
                 <MinimumSize>100,</MinimumSize>
                 <Children>
 
-                  <Template src="skin:/decks/preview_deck.xml"/>
+                  <!-- Shon: preview player only shows while a song is previewing -->
+                  <WidgetGroup>
+                    <Layout>vertical</Layout>
+                    <SizePolicy>me,min</SizePolicy>
+                    <Children>
+                      <Template src="skin:/decks/preview_deck.xml"/>
+                    </Children>
+                    <Connection>
+                      <ConfigKey>[PreviewDeck1],track_loaded</ConfigKey>
+                      <BindProperty>visible</BindProperty>
+                    </Connection>
+                  </WidgetGroup>
 
                   <WidgetGroup><!--SearchBox + Library expand toggle -->
                     <Layout>horizontal</Layout>

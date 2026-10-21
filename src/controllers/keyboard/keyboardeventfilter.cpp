@@ -111,6 +111,16 @@ bool KeyboardEventFilter::eventFilter(QObject*, QEvent* e) {
             return false;
         }
 
+        // Shon: in the track list, plain letters and numbers go to the
+        // list (which sends them to the search box) instead of the decks.
+        if (QGuiApplication::focusObject() &&
+                QGuiApplication::focusObject()->inherits("WTrackTableView") &&
+                (pKE->modifiers() & ~(Qt::ShiftModifier | Qt::KeypadModifier)) ==
+                        Qt::NoModifier &&
+                !pKE->text().isEmpty() && pKE->text().at(0).isLetterOrNumber()) {
+            return false;
+        }
+
 #ifdef __APPLE__
         // On Mac OSX the nativeScanCode is empty (const 1) http://doc.qt.nokia.com/4.7/qkeyevent.html#nativeScanCode
         // We may loose the release event if a the shift key is pressed later

@@ -1,5 +1,7 @@
 #include "widget/wtrackmenu.h"
 
+#include "library/shonrequests.h"
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QInputDialog>
@@ -803,6 +805,21 @@ void WTrackMenu::setupActions() {
         addAction(m_pFileBrowserAct);
     }
 
+    // Shon: two songs selected, let the guests vote between them.
+    m_pShonPollAct = new QAction(tr("Crowd poll between these 2"), this);
+    connect(m_pShonPollAct, &QAction::triggered, this, [this]() {
+        const TrackPointerList tracks = getTrackPointers();
+        ShonRequests* pRequests = ShonRequests::instance();
+        if (tracks.size() != 2 || !pRequests || !tracks[0] || !tracks[1]) {
+            return;
+        }
+        pRequests->startPoll(tracks[0]->getTitle(),
+                tracks[0]->getArtist(),
+                tracks[1]->getTitle(),
+                tracks[1]->getArtist());
+    });
+    addAction(m_pShonPollAct);
+
     if (featureIsEnabled(Feature::Properties)) {
         addSeparator();
         addAction(m_pPropertiesAct);
@@ -1008,6 +1025,9 @@ void WTrackMenu::updateMenus() {
 
     // Gray out some stuff if multiple songs were selected.
     const bool singleTrackSelected = getTrackCount() == 1;
+    if (m_pShonPollAct) {
+        m_pShonPollAct->setVisible(getTrackCount() == 2 && ShonRequests::instance());
+    }
 
     auto pTrack = getFirstTrackPointer();
     VERIFY_OR_DEBUG_ASSERT(pTrack) {

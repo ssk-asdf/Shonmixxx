@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <memory>
+#include <vector>
 
 #include "analyzer/trackanalysisscheduler.h"
 #include "library/library_decl.h"
@@ -21,6 +23,9 @@ class AutoDJFeature;
 class BrowseFeature;
 class ControlObject;
 class ShonRequests;
+class ShonRemote;
+class ShonImport;
+class ShonPractice;
 class CrateFeature;
 class LibraryControl;
 class LibraryFeature;
@@ -148,6 +153,8 @@ class Library: public QObject {
     void slotRestoreCurrentViewState() const;
 
   signals:
+    /// Short text for the bottom-right notice in the main window.
+    void shonNotice(const QString& text);
     void showTrackModel(QAbstractItemModel* model, bool restoreState = true);
     void switchToView(const QString& view);
     void loadTrack(TrackPointer pTrack);
@@ -192,6 +199,7 @@ class Library: public QObject {
       /// the one the crowd hears. Refreshes when the playing track changes.
       void slotShonToggleMatches(double value);
       void slotShonPlayingTrackChanged(TrackPointer pTrack);
+      void slotShonDeckTrackChanged(const QString& group, TrackPointer pNewTrack, TrackPointer pOldTrack);
       /// Shon Away Mode: fills Auto DJ with tracks that chain well from the
       /// one playing, turns Auto DJ on, and keeps the queue topped up.
       void slotShonToggleAwayMode(double value);
@@ -226,9 +234,18 @@ class Library: public QObject {
     bool m_shonMatchesActive = false;
     std::unique_ptr<ControlObject> m_pShonAwayMode;
     parented_ptr<ShonRequests> m_pShonRequests;
+    parented_ptr<ShonRemote> m_pShonRemote;
+    parented_ptr<ShonImport> m_pShonImport;
+    parented_ptr<ShonPractice> m_pShonPractice;
     std::unique_ptr<ControlObject> m_pShonStealth;
     std::unique_ptr<ControlObject> m_pShonStealthPeek;
+    std::unique_ptr<ControlObject> m_pShonStemLines;
+    std::vector<std::unique_ptr<ControlObject>> m_shonUnmuteStems;
     QTimer* m_pShonAwayTimer = nullptr;
     void shonAwayAddTracks(int count);
+    // Planned transitions: songs named in the playing track's cue labels.
+    void shonUpdatePlannedTransitions(TrackPointer pTrack);
+    void shonAlignSwappedStem(TrackId trackId);
+    QStringList m_shonPlannedSearch;
     void shonApplyMatchesFilter(TrackPointer pTrack);
 };

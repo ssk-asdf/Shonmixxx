@@ -169,12 +169,12 @@
         <Children>
           <WidgetGroup><Size>0me,min</Size></WidgetGroup>
           <PushButton>
-            <TooltipId>shon_away_mode</TooltipId>
-            <ObjectName>ShonMode</ObjectName>
-            <Size>52f,24f</Size>
+            <Tooltip>Away Mode: ShonDJ keeps a matched set going (Shift+W)</Tooltip>
+            <ObjectName>ShonAwayButton</ObjectName>
+            <Size>28f,24f</Size>
             <NumberStates>2</NumberStates>
-            <State><Number>0</Number><Text>AWAY</Text></State>
-            <State><Number>1</Number><Text>AWAY</Text></State>
+            <State><Number>0</Number></State>
+            <State><Number>1</Number></State>
             <Connection>
               <ConfigKey>[AutoDJ],shon_away_mode</ConfigKey>
               <ButtonState>LeftButton</ButtonState>
@@ -182,12 +182,12 @@
           </PushButton>
           <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
           <PushButton>
-            <TooltipId>shon_show_matches</TooltipId>
-            <ObjectName>ShonMode</ObjectName>
-            <Size>56f,24f</Size>
+            <Tooltip>Match: show only songs that fit the playing track (Ctrl+M)</Tooltip>
+            <ObjectName>ShonMatchButton</ObjectName>
+            <Size>28f,24f</Size>
             <NumberStates>2</NumberStates>
-            <State><Number>0</Number><Text>MATCH</Text></State>
-            <State><Number>1</Number><Text>MATCH</Text></State>
+            <State><Number>0</Number></State>
+            <State><Number>1</Number></State>
             <Connection>
               <ConfigKey>[Library],shon_show_matches</ConfigKey>
               <ButtonState>LeftButton</ButtonState>
@@ -195,15 +195,45 @@
           </PushButton>
           <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
           <PushButton>
+            <Tooltip>Add songs: paste a YouTube link or drop files in Music\Inbox. Stems are made for you.</Tooltip>
+            <ObjectName>ShonAddButton</ObjectName>
+            <Size>28f,24f</Size>
+            <NumberStates>1</NumberStates>
+            <State><Number>0</Number></State>
+            <Connection>
+              <ConfigKey>[Shon],import_window</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
+          <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+          <PushButton>
             <Tooltip>Song requests: QR code and inbox</Tooltip>
-            <ObjectName>ShonMode</ObjectName>
-            <Size>78f,24f</Size>
+            <ObjectName>ShonRequestsButton</ObjectName>
+            <Size>28f,24f</Size>
             <NumberStates>2</NumberStates>
-            <State><Number>0</Number><Text>REQUESTS</Text></State>
-            <State><Number>1</Number><Text>REQUESTS</Text></State>
+            <State><Number>0</Number></State>
+            <State><Number>1</Number></State>
             <Connection>
               <ConfigKey>[Shon],requests_window</ConfigKey>
               <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
+          <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+          <PushButton>
+            <Tooltip>Phone remote. Left click: on or off. Right click: show the QR code.</Tooltip>
+            <ObjectName>ShonPhoneButton</ObjectName>
+            <Size>28f,24f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number></State>
+            <State><Number>1</Number></State>
+            <Connection>
+              <ConfigKey>[Shon],remote</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+            <Connection>
+              <ConfigKey>[Shon],remote_qr</ConfigKey>
+              <ButtonState>RightButton</ButtonState>
+              <ConnectValueToWidget>false</ConnectValueToWidget>
             </Connection>
           </PushButton>
           <WidgetGroup><Size>10f,1min</Size></WidgetGroup>
@@ -251,6 +281,18 @@
             <Connection>
               <ConfigKey>[Shoutcast],status</ConfigKey>
               <ConnectValueFromWidget>false</ConnectValueFromWidget>
+            </Connection>
+          </PushButton>
+          <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+          <PushButton>
+            <Tooltip>Practice: score each transition (beats, phrase, blend length)</Tooltip>
+            <ObjectName>ShonPracticeButton</ObjectName>
+            <Size>28f,24f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number></State><State><Number>1</Number></State>
+            <Connection>
+              <ConfigKey>[Shon],practice</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
             </Connection>
           </PushButton>
           <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
@@ -362,7 +404,41 @@
               </Time>
             </Children>
           </WidgetGroup>
-          <WidgetGroup><Size>12f,1min</Size></WidgetGroup>
+          <WidgetGroup><Size>10f,1min</Size></WidgetGroup>
+          <PushButton>
+            <ObjectName>ShonFullscreenButton</ObjectName>
+            <Tooltip>Full screen on or off (F11)</Tooltip>
+            <Size>28f,24f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number></State><State><Number>1</Number></State>
+            <Connection>
+              <ConfigKey>[Shon],fullscreen</ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
+          <WidgetGroup>
+            <Layout>horizontal</Layout>
+            <SizePolicy>min,min</SizePolicy>
+            <Children>
+              <WidgetGroup><Size>2f,1min</Size></WidgetGroup>
+              <PushButton>
+                <ObjectName>ShonCloseButton</ObjectName>
+                <Tooltip>Close ShonDJ</Tooltip>
+                <Size>28f,24f</Size>
+                <NumberStates>1</NumberStates>
+                <State><Number>0</Number></State>
+                <Connection>
+                  <ConfigKey>[Shon],quit</ConfigKey>
+                  <ButtonState>LeftButton</ButtonState>
+                </Connection>
+              </PushButton>
+            </Children>
+            <Connection>
+              <ConfigKey>[Shon],fullscreen</ConfigKey>
+              <BindProperty>visible</BindProperty>
+            </Connection>
+          </WidgetGroup>
+          <WidgetGroup><Size>8f,1min</Size></WidgetGroup>
         </Children>
       </WidgetGroup>
     </Children>

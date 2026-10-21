@@ -126,6 +126,32 @@ int shonDjDeviceScore(const QString& name, int outputChannels) {
             return 2;
         }
     }
+    // Unknown names: Bluetooth speakers and headphones often claim 8
+    // channels (DirectSound's 7.1 mix) but only play 2, so they are not
+    // DJ sound cards. Windows names them "Speakers (...)" or "Headphones (...)".
+    static const char* const kNotDj[] = {"speakers (",
+            "headphones (",
+            "headset",
+            "earphones",
+            "earbuds",
+            "airpods",
+            "buds",
+            "jbl",
+            "bose",
+            "beats",
+            "soundcore",
+            "anker",
+            "sony",
+            "marshall",
+            "ultimate ears",
+            "tribit",
+            "hands-free",
+            "a2dp"};
+    for (const char* pNot : kNotDj) {
+        if (lower.contains(QLatin1String(pNot))) {
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -866,6 +892,25 @@ QString SoundManager::shonAutoConfigureAtStartup() {
     return changed ? description : QString();
 }
 
+QString SoundManager::shonFallbackToLaptop() {
+    if (!m_pConfig->getValue(kShonAudioAutoKey, true) || isPipewireSelected()) {
+        return QString();
+    }
+    const SoundManagerConfig saved = m_config;
+    QString description;
+    closeDevices(false);
+    m_pErrorDevice.clear();
+    m_config = shonBuildAutoConfig(&description, true);
+    checkConfig();
+    if (setupDevices() != SoundDeviceStatus::Ok) {
+        m_config = saved;
+        return QString();
+    }
+    // Not written to disk: the saved setup stays the one to come back to.
+    m_shonPendingConfig = saved;
+    return description.isEmpty() ? QStringLiteral("Audio: laptop speakers") : description;
+}
+
 QString SoundManager::shonHandleDeviceChange() {
     if (!m_pConfig->getValue(kShonAudioAutoKey, true) || isPipewireSelected()) {
         return QString();
@@ -878,6 +923,23 @@ QString SoundManager::shonHandleDeviceChange() {
     m_pEnumerator->deinitialize();
     m_pEnumerator->initialize();
     emit devicesUpdated();
+
+    // Playing on the laptop because the saved speaker was off: try the
+    // saved setup again now that something changed.
+    if (m_shonPendingConfig) {
+        const SoundManagerConfig laptop = m_config;
+        m_config = *m_shonPendingConfig;
+        checkConfig();
+        if (setupDevices() == SoundDeviceStatus::Ok) {
+            m_shonPendingConfig.reset();
+            return QStringLiteral("Audio: back on your saved speaker");
+        }
+        closeDevices(false);
+        m_pErrorDevice.clear();
+        m_config = laptop;
+        setupDevices();
+        return QString();
+    }
 
     if (m_pConfig->getValue(kShonAudioManualKey, false) && shonConfigDevicesExist(m_config)) {
         // Hand picked devices are all still here, just reopen them.

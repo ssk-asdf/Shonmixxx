@@ -10,6 +10,75 @@
     <Layout>horizontal</Layout>
     <SizePolicy>me,me</SizePolicy>
     <Children>
+      <!-- Shon: stem controls, only for tracks that have stems -->
+      <WidgetGroup>
+        <RequiresStem>true</RequiresStem>
+        <ObjectName>ShonStemControls</ObjectName>
+        <Layout>vertical</Layout>
+        <Size>146f,0me</Size>
+        <Children>
+          <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+          <WidgetGroup>
+            <Layout>vertical</Layout>
+            <SizePolicy>min,min</SizePolicy>
+            <Children>
+              <WidgetGroup>
+                <Layout>horizontal</Layout>
+                <SizePolicy>min,min</SizePolicy>
+                <Children>
+                  <WidgetGroup><Size>12f,1min</Size></WidgetGroup>
+                  <PushButton>
+                    <ObjectName>ShonStemLinesToggle</ObjectName>
+                    <Tooltip>Stem lines on the waveform</Tooltip>
+                    <Size>62f,20f</Size>
+                    <NumberStates>2</NumberStates>
+                    <State><Number>0</Number><Text>LINES OFF</Text></State>
+                    <State><Number>1</Number><Text>LINES ON</Text></State>
+                    <Connection>
+                      <ConfigKey>[Shon],stem_lines</ConfigKey>
+                      <ButtonState>LeftButton</ButtonState>
+                    </Connection>
+                  </PushButton>
+                  <PushButton>
+                    <ObjectName>ShonStemLinesToggle</ObjectName>
+                    <Tooltip>Turn all stems of this deck back on</Tooltip>
+                    <Size>60f,20f</Size>
+                    <NumberStates>1</NumberStates>
+                    <State><Number>0</Number><Text>UNMUTE</Text></State>
+                    <Connection>
+                      <ConfigKey>[Channel<Variable name="ChanNum"/>],shon_unmute_stems</ConfigKey>
+                      <ButtonState>LeftButton</ButtonState>
+                    </Connection>
+                  </PushButton>
+                  <WidgetGroup><Size>12f,1min</Size></WidgetGroup>
+                </Children>
+              </WidgetGroup>
+              <WidgetGroup><Size>1min,6f</Size></WidgetGroup>
+              <Template src="skin:/stem_channel.xml">
+                <SetVariable name="StemNum">1</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,4f</Size></WidgetGroup>
+              <Template src="skin:/stem_channel.xml">
+                <SetVariable name="StemNum">2</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,4f</Size></WidgetGroup>
+              <Template src="skin:/stem_channel.xml">
+                <SetVariable name="StemNum">3</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,4f</Size></WidgetGroup>
+              <Template src="skin:/stem_channel.xml">
+                <SetVariable name="StemNum">4</SetVariable>
+              </Template>
+            </Children>
+          </WidgetGroup>
+          <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+        </Children>
+        <Connection>
+          <ConfigKey persist="true">[Channel<Variable name="ChanNum"/>],stem_count</ConfigKey>
+          <BindProperty>visible</BindProperty>
+        </Connection>
+      </WidgetGroup>
+
       <WidgetGroup>
         <ObjectName>WaveformBox<Variable name="ChanNum"/></ObjectName>
         <Layout>horizontal</Layout>

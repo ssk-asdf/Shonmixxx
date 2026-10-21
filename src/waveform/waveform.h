@@ -138,6 +138,8 @@ class Waveform {
     }
 
     void dump() const;
+    // Shon: public so stem swaps can line up cues.
+    double getVisualSampleRate() const { return m_visualSampleRate; }
 
   private:
     void readByteArray(const QByteArray& data);
@@ -149,7 +151,6 @@ class Waveform {
     inline unsigned char& mid(int i) { return m_data[i].filtered.mid;}
     inline unsigned char& high(int i) { return m_data[i].filtered.high;}
     inline unsigned char& all(int i) { return m_data[i].filtered.all;}
-    double getVisualSampleRate() const { return m_visualSampleRate; }
 
     // If stored in the database, the ID of the waveform.
     int m_id;

@@ -9,6 +9,12 @@
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QFile>
+#include <QVBoxLayout>
+#include <QThread>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <QElapsedTimer>
+#include <QDialog>
 #include <QRegularExpression>
 #include <QApplication>
 #include <QLabel>
@@ -34,6 +40,8 @@
 #include "widget/winitialglwidget.h"
 #endif
 
+#include "controllers/controller.h"
+#include "controllers/controllermanager.h"
 #include "controllers/keyboard/keyboardeventfilter.h"
 #include "coreservices.h"
 #include "defs_urls.h"
@@ -47,6 +55,8 @@
 #endif
 #include "control/controlindicatortimer.h"
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
+#include "control/controlpushbutton.h"
 #include "library/shonrequests.h"
 #include "library/library.h"
 #include "library/library_decl.h"
@@ -77,6 +87,7 @@
 #include "waveform/waveformwidgetfactory.h"
 #include "widget/wglwidget.h"
 #include "widget/wmainmenubar.h"
+#include "widget/shoncurtain.h"
 
 #ifdef __VINYLCONTROL__
 #include "vinylcontrol/vinylcontrolmanager.h"
@@ -213,6 +224,101 @@ class ShonGeometryWatcher : public QObject {
   private:
     std::function<void()> m_callback;
 };
+
+// ShonDJ close prompt, shown when music is still playing.
+enum class ShonCloseChoice {
+    Keep,
+    Close,
+    FadeClose,
+};
+
+ShonCloseChoice shonAskClose(QWidget* pParent, const QString& message) {
+    QDialog dialog(pParent, Qt::Dialog | Qt::FramelessWindowHint);
+    dialog.setAttribute(Qt::WA_TranslucentBackground);
+    dialog.setStyleSheet(QStringLiteral("QDialog { background: transparent; }"));
+    dialog.setModal(true);
+    auto* pOuter = new QVBoxLayout(&dialog);
+    pOuter->setContentsMargins(0, 0, 0, 0);
+    auto* pCard = new QWidget(&dialog);
+    pCard->setObjectName(QStringLiteral("ShonCloseCard"));
+    pCard->setAttribute(Qt::WA_StyledBackground, true);
+    pCard->setStyleSheet(QStringLiteral(
+            "#ShonCloseCard { background: #18181b; border: 1px solid #2a2a2e;"
+            " border-radius: 14px; }"
+            "QLabel { color: #9a9aa2; font-size: 13px; background: transparent; }"
+            "QLabel#ShonCloseTitle { color: #ffffff; font-size: 18px; font-weight: 600; }"
+            "QPushButton { color: #e6e6e6; background: #26262b; border: 1px solid #36363d;"
+            " border-radius: 8px; padding: 9px 16px; font-size: 13px; }"
+            "QPushButton:hover { background: #2e2e34; }"
+            "QPushButton#ShonCloseKeep { background: #2f6bff; border-color: #2f6bff;"
+            " color: #ffffff; }"
+            "QPushButton#ShonCloseNow { color: #ff6b61; border-color: #5a2a27; }"
+            "QPushButton#ShonCloseNow:hover { background: #3a1c1a; }"));
+    pOuter->addWidget(pCard);
+    auto* pLayout = new QVBoxLayout(pCard);
+    pLayout->setContentsMargins(24, 22, 24, 20);
+    pLayout->setSpacing(8);
+    auto* pTitle = new QLabel(QStringLiteral("Close ShonDJ?"), pCard);
+    pTitle->setObjectName(QStringLiteral("ShonCloseTitle"));
+    auto* pMessage = new QLabel(message, pCard);
+    pMessage->setWordWrap(true);
+    pLayout->addWidget(pTitle);
+    pLayout->addWidget(pMessage);
+    pLayout->addSpacing(12);
+    auto* pButtons = new QHBoxLayout();
+    pButtons->setSpacing(8);
+    auto* pKeep = new QPushButton(QStringLiteral("Keep playing"), pCard);
+    pKeep->setObjectName(QStringLiteral("ShonCloseKeep"));
+    auto* pFade = new QPushButton(QStringLiteral("Fade out and close"), pCard);
+    auto* pNow = new QPushButton(QStringLiteral("Close now"), pCard);
+    pNow->setObjectName(QStringLiteral("ShonCloseNow"));
+    pButtons->addWidget(pNow);
+    pButtons->addStretch();
+    pButtons->addWidget(pFade);
+    pButtons->addWidget(pKeep);
+    pLayout->addLayout(pButtons);
+
+    ShonCloseChoice choice = ShonCloseChoice::Keep;
+    QObject::connect(pKeep, &QPushButton::clicked, &dialog, [&]() {
+        choice = ShonCloseChoice::Keep;
+        dialog.accept();
+    });
+    QObject::connect(pFade, &QPushButton::clicked, &dialog, [&]() {
+        choice = ShonCloseChoice::FadeClose;
+        dialog.accept();
+    });
+    QObject::connect(pNow, &QPushButton::clicked, &dialog, [&]() {
+        choice = ShonCloseChoice::Close;
+        dialog.accept();
+    });
+    pKeep->setDefault(true);
+    pKeep->setFocus();
+    dialog.setFixedWidth(460);
+    dialog.exec(); // Esc or clicking away keeps playing
+    return choice;
+}
+
+// Fades the main output to silence over 3 seconds, stops every deck, then
+// puts the volume back so ShonDJ isn't silent next time it opens.
+void shonFadeOutAndStop(int deckCount) {
+    const ConfigKey gainKey(QStringLiteral("[Master]"), QStringLiteral("gain"));
+    const double startGain = ControlObject::get(gainKey);
+    constexpr qint64 kFadeMs = 3000;
+    QElapsedTimer clock;
+    clock.start();
+    while (clock.elapsed() < kFadeMs) {
+        const double left = 1.0 - static_cast<double>(clock.elapsed()) / kFadeMs;
+        ControlObject::set(gainKey, startGain * left * left);
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 15);
+        QThread::msleep(15);
+    }
+    ControlObject::set(gainKey, 0.0);
+    for (int i = 0; i < deckCount; ++i) {
+        ControlObject::set(ConfigKey(PlayerManager::groupForDeck(i), QStringLiteral("play")), 0.0);
+    }
+    QThread::msleep(150);
+    ControlObject::set(gainKey, startGain);
+}
 
 // Dark stylesheet for dialogs the skin does not cover.
 void shonApplyDarkDialogStyle(QWidget* pWidget) {
@@ -542,6 +648,32 @@ void MixxxMainWindow::initialize() {
 
     tryParseAndSetDefaultStyleSheet();
 
+    // Shon: top bar buttons to leave full screen and to close the app,
+    // since full screen hides the window's own title bar.
+    m_pShonFullscreen = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("fullscreen")));
+    static_cast<ControlPushButton*>(m_pShonFullscreen.get())
+            ->setButtonMode(mixxx::control::ButtonMode::Toggle);
+    m_pShonFullscreen->set(isFullScreen() ? 1.0 : 0.0);
+    connect(m_pShonFullscreen.get(), &ControlObject::valueChanged, this, [this](double value) {
+        slotViewFullScreen(value > 0.0);
+    });
+    connect(this, &MixxxMainWindow::fullScreenChanged, this, [this](bool fullScreen) {
+        m_pShonFullscreen->set(fullScreen ? 1.0 : 0.0);
+    });
+    // Shon: logo screen (Ctrl+L, or by itself when idle and not mixing).
+    if (!findChild<ShonCurtain*>()) {
+        new ShonCurtain(m_pCoreServices->getSettings(), this);
+    }
+    m_pShonQuit = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("quit")));
+    connect(m_pShonQuit.get(), &ControlObject::valueChanged, this, [this](double value) {
+        if (value > 0.0) {
+            // Close after the click finishes. This shows the close prompt.
+            QTimer::singleShot(0, this, [this]() { close(); });
+        }
+    });
+
     if (!loadConfiguredSkin()) {
         reportCriticalErrorAndQuit(
                 "default skin cannot be loaded - see <b>mixxx</b> trace for more information");
@@ -564,9 +696,24 @@ void MixxxMainWindow::initialize() {
     // Try to open configured devices. If that fails, display dialogs
     // that allow to either retry, reconfigure devices or exit.
     bool retryClicked;
+    bool retryClickedOnce = false;
     do {
         retryClicked = false;
         SoundDeviceStatus result = m_pCoreServices->getSoundManager()->setupDevices();
+        if (result != SoundDeviceStatus::Ok && !retryClickedOnce) {
+            // Shon: the saved speaker is off or out of range. Play through
+            // the laptop instead of stopping at an error box.
+            const QString fallback =
+                    m_pCoreServices->getSoundManager()->shonFallbackToLaptop();
+            if (!fallback.isEmpty()) {
+                result = SoundDeviceStatus::Ok;
+                QTimer::singleShot(1500, this, [this]() {
+                    shonShowNotice(QStringLiteral(
+                            "Your speaker isn't connected. Playing through the "
+                            "laptop. ShonDJ switches back when it connects."));
+                });
+            }
+        }
         if (result == SoundDeviceStatus::ErrorDeviceCount ||
                 result == SoundDeviceStatus::ErrorExcessiveOutputChannel) {
             if (soundDeviceBusyDlg(&retryClicked) != QDialog::Accepted) {
@@ -578,11 +725,108 @@ void MixxxMainWindow::initialize() {
                 exit(0);
             }
         }
+        retryClickedOnce = retryClickedOnce || retryClicked;
     } while (retryClicked);
 
     shonSetupAudioHotplug();
+
+    // Shon: vinyl and passthrough buttons only show when a deck has a
+    // turntable or line input set up in Sound Hardware.
+    {
+        auto* pVinylTimer = new QTimer(this);
+        pVinylTimer->setInterval(2000);
+        connect(pVinylTimer, &QTimer::timeout, this, [this]() {
+            bool anyInput = false;
+            for (int deck = 1; deck <= 4; ++deck) {
+                if (ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(deck),
+                            QStringLiteral("input_configured"))) > 0.0) {
+                    anyInput = true;
+                }
+            }
+            ControlProxy showVinyl(QStringLiteral("[Skin]"), QStringLiteral("show_vinylcontrol"));
+            if ((showVinyl.get() > 0.0) != anyInput) {
+                showVinyl.set(anyInput ? 1.0 : 0.0);
+            }
+        });
+        pVinylTimer->start();
+    }
+
+    // Shon: auto deck count. When a controller connects, show 4 decks for a
+    // 4-deck controller and 2 for any other. With no controller, 2 decks.
+    // Only reacts to changes, so picking 4 DECKS by hand still sticks.
+    if (auto pControllerManager = m_pCoreServices->getControllerManager()) {
+        auto* pDeckTimer = new QTimer(this);
+        pDeckTimer->setInterval(3000);
+        std::weak_ptr<ControllerManager> pWeakManager = pControllerManager;
+        connect(pDeckTimer, &QTimer::timeout, this, [this, pWeakManager]() {
+            const auto pControllerManager = pWeakManager.lock();
+            if (!pControllerManager) {
+                return;
+            }
+            static const QStringList kFourDeck = {QStringLiteral("flx6"),
+                    QStringLiteral("flx10"),
+                    QStringLiteral("ddj-1000"),
+                    QStringLiteral("ddj-sx"),
+                    QStringLiteral("ddj-sz"),
+                    QStringLiteral("ddj-rx"),
+                    QStringLiteral("ddj-rz"),
+                    QStringLiteral("rev5"),
+                    QStringLiteral("rev7"),
+                    QStringLiteral("kontrol s4"),
+                    QStringLiteral("kontrol s5"),
+                    QStringLiteral("kontrol s8"),
+                    QStringLiteral("ns6"),
+                    QStringLiteral("ns7"),
+                    QStringLiteral("mc7000"),
+                    QStringLiteral("mcx8000"),
+                    QStringLiteral("prime 4"),
+                    QStringLiteral("mixtrack platinum")};
+            int decks = 2;
+            QStringList names;
+            const QList<Controller*> controllers = pControllerManager->getControllers();
+            for (Controller* pController : controllers) {
+                if (!pController || !pController->isOpen()) {
+                    continue;
+                }
+                const QString name = pController->getName().toLower();
+                names << name;
+                for (const QString& model : kFourDeck) {
+                    if (name.contains(model)) {
+                        decks = 4;
+                    }
+                }
+            }
+            names.sort();
+            const QString signature = names.join(QLatin1Char('|'));
+            if (signature == m_shonControllerSignature) {
+                return;
+            }
+            const bool firstCheck = m_shonControllerSignature == QStringLiteral("<start>");
+            m_shonControllerSignature = signature;
+            if (firstCheck && names.isEmpty()) {
+                return; // nothing plugged in at launch: keep the saved layout
+            }
+            ControlProxy show4(QStringLiteral("[Skin]"), QStringLiteral("show_4decks"));
+            show4.set(decks == 4 ? 1.0 : 0.0);
+            if (!names.isEmpty()) {
+                // On a controller the jog wheels are the platters: use the
+                // small vinyl so the decks have more room.
+                ControlProxy bigVinyl(
+                        QStringLiteral("[Skin]"), QStringLiteral("select_big_spinny_or_cover"));
+                bigVinyl.set(0.0);
+            }
+            if (!names.isEmpty()) {
+                shonShowNotice(QStringLiteral("Controller connected: %1 decks").arg(decks));
+            }
+        });
+        pDeckTimer->start();
+    }
     // Song request notices ("Request: ...") use the same corner card.
     if (const auto pLibrary = m_pCoreServices->getLibrary()) {
+        // Planned transitions ("Planned: Low at cue 4") use the corner card too.
+        connect(pLibrary.get(), &Library::shonNotice, this, [this](const QString& text) {
+            shonShowNotice(text);
+        });
         if (ShonRequests* pRequests = pLibrary->shonRequests()) {
             connect(pRequests, &ShonRequests::notice, this, [this](const QString& text) {
                 shonShowNotice(text);
@@ -1970,21 +2214,19 @@ bool MixxxMainWindow::confirmExit() {
             break;
         }
     }
-    if (playing) {
-        QMessageBox::StandardButton btn = QMessageBox::question(this,
-            tr("Confirm Exit"),
-            tr("A deck is currently playing. Exit Mixxx?"),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (btn == QMessageBox::No) {
+    if (playing || playingSampler) {
+        // Shon: our own close prompt, with a fade out so the party doesn't
+        // get a hard stop.
+        const ShonCloseChoice choice = shonAskClose(this,
+                playing ? QStringLiteral("A song is still playing. The music stops when "
+                                         "ShonDJ closes.")
+                        : QStringLiteral("A sampler is still playing. The sound stops "
+                                         "when ShonDJ closes."));
+        if (choice == ShonCloseChoice::Keep) {
             return false;
         }
-    } else if (playingSampler) {
-        QMessageBox::StandardButton btn = QMessageBox::question(this,
-            tr("Confirm Exit"),
-            tr("A sampler is currently playing. Exit Mixxx?"),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (btn == QMessageBox::No) {
-            return false;
+        if (choice == ShonCloseChoice::FadeClose) {
+            shonFadeOutAndStop(deckCount);
         }
     }
     if (m_pPrefDlg && m_pPrefDlg->isVisible()) {

@@ -25,6 +25,11 @@ inline bool shonStealthActive() {
             ControlObject::get(shonStealthPeekKey()) <= 0.0;
 }
 
+/// What a hidden title shows. Artist, album and the rest just go blank.
+inline QString shonStealthTitle() {
+    return QStringLiteral("Hidden track");
+}
+
 /// Dots instead of the real text, roughly the same length.
 inline QString shonStealthMask(const QString& text) {
     if (text.isEmpty()) {

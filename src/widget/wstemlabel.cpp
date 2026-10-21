@@ -55,7 +55,8 @@ void WStemLabel::slotTrackLoaded(TrackPointer pTrack) {
 }
 
 void WStemLabel::updateLabel() {
-    QColor color = m_stemInfo.getColor();
+    // Shon: one calm grey for every stem name instead of four colors.
+    QColor color(154, 154, 162);
     QString text = m_stemInfo.getLabel();
     setTextColor(color);
     setLabelText(text);

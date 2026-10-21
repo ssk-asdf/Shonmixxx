@@ -123,7 +123,10 @@ void WTrackProperty::updateLabel() {
                 QStringLiteral("titleInfo"),
                 QStringLiteral("info")};
         if (shonStealthActive() && kHidden.contains(m_displayProperty)) {
-            setText(shonStealthMask(text));
+            const bool isTitle = m_displayProperty == QLatin1String("title") ||
+                    m_displayProperty == QLatin1String("titleInfo") ||
+                    m_displayProperty == QLatin1String("info");
+            setText(isTitle ? shonStealthTitle() : QString());
             return;
         }
         setText(text);

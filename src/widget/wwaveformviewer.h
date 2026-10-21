@@ -93,4 +93,5 @@ class WWaveformViewer : public WWidget, public TrackDropTarget {
     void highlightMark(WaveformMarkPointer pMark);
     void unhighlightMark(WaveformMarkPointer pMark);
     bool isPlaying() const;
+    void shonAddTransitionCue(TrackPointer pTrack, QMouseEvent* event);
 };

@@ -1264,7 +1264,7 @@ WCoverArtMenu {
   #SkinSettingsNumToggleHeader[displayValue="1"],
   #SkinSettingsMixerToggle,
   #SkinSettingsText {
-    color: #988f86;
+    color: #e6e6e6;
   }
   #SkinSettingsNumToggleHeader[displayValue="0"] {
     color: #756e6c;
@@ -1275,7 +1275,7 @@ WEffectChainPresetSelector:!editable,
 WEffectChainPresetSelector:!editable:on,
 #fadeModeCombobox:!editable,
 #fadeModeCombobox:!editable:on {
-  color: #918273;
+  color: #e6e6e6;
   }
   WEffectSelector:!editable,
   WEffectSelector:!editable:on,
@@ -1287,12 +1287,12 @@ WEffectChainPresetSelector:!editable:on,
   /* dim² ivory */
   #SamplerBpm, #SamplerBpmMini,
   WTrackTableViewHeader {
-    color: #766b65;
+    color: #b4b4bb;
   }
 
   WBeatSpinBox,
   #spinBoxTransition {
-    color: #a7998b;
+    color: #ffffff;
   }
 
 /* pale blue */
@@ -1682,12 +1682,13 @@ WPushButton#Reverse[pressed="true"],
 #BroadcastButton[displayValue="4"], /* warning */
 QPushButton#pushButtonAutoDJ:checked,
 QPushButton#pushButtonAnalyze:checked {
-  background-color: #b24c12;
+  background-color: #2f6bff;
+  color: #ffffff;
   }
   /* Orange border for Play buttons when previewing from
     Cue or Hotcue */
   WPushButton#PreviewIndicator[value="1"] {
-    border: 3px solid #b24c12;
+    border: 2px solid #2f6bff;
     /* work around round borders being painted outside the actual border area */
     border-radius: 0px;
   }
@@ -1703,7 +1704,7 @@ WPushButton#LoopAnchor[pressed="true"],
 #CueDeleteButton[pressed="true"],
 #CueSavedLoopButton[pressed="true"],
 #CueSavedLoopButton:checked*/ {
-  background-color: #7d350d;
+  background-color: #23408f;
   }
 
 /* Red */
@@ -2760,32 +2761,44 @@ WTrackPropertyEditor {
 /*********** table header styles *********************************/
 
 WTrackTableViewHeader {
-  border-bottom-right-radius: 1px solid #000;
+  background-color: #0f0f0f;
+  border: none;
   outline: none;
 }
 
+/* Shon: flat headers, grey text, even padding, thin dividers.
+   The negative right padding pushes the space Qt saves for the sort arrow
+   out of view, so titles are not cut short. */
 WTrackTableViewHeader::section {
-/* Setting an image causes QHeaderView to reserve space for the sort indicator,
-   i.e. column titles are truncated, even where no indicators are shown.
-   The arrow width and padding are set in style.qss (0.8em + .15em),
-   so let's set a negative padding-right to shift the text. This will push the
-   reserved space out of the visible region, but the actual arrow will still be visible.
-   Now the arrow overlaps the column title again like in Qt5 (bug), so the arrow images
-   could use a background-color to cover the text, or a gradient to fade it out gently. */
-  padding: 2px -0.95em 0px 3px;
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 11px;
+  color: #9a9aa2;
+  background-color: #0f0f0f;
+  height: 22px;
+  padding: 0px -0.95em 0px 5px;
   outline: none;
-  border-width: 1px 2px 1px 1px;
-  border-image: url(skin:/palemoon/buttons/btn_embedded_library_header.svg) 1 2 1 1;
+  border: none;
+  border-image: none;
+}
+WTrackTableViewHeader::section:hover {
+  color: #ffffff;
+  background-color: #18181b;
+}
+WTrackTableViewHeader::section:pressed {
+  background-color: #1f1f23;
 }
 
 WTrackTableViewHeader::up-arrow,
 WTrackTableViewHeader::down-arrow {
   outline: none;
-  /* horizontal gradient to fade out the text */
+  width: 12px;
+  height: 12px;
+  padding: 0px 4px;
+  /* fade the title text under the arrow */
   background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
     stop: 0 transparent,
-    stop: 0.2 #171719,
-    stop: 1 #171719);
+    stop: 0.3 #0f0f0f,
+    stop: 1 #0f0f0f);
   }
   WTrackTableViewHeader::up-arrow {
     image: url(skin:/palemoon/buttons/btn__lib_sort_up.svg);
@@ -2793,10 +2806,6 @@ WTrackTableViewHeader::down-arrow {
   WTrackTableViewHeader::down-arrow {
     image: url(skin:/palemoon/buttons/btn__lib_sort_down.svg);
   }
-
-
-
-
 
 /*********** scrollbars *********************************/
 #LibraryContainer QScrollBar,
@@ -3359,6 +3368,9 @@ WSearchLineEdit::indicator:unchecked:selected {
 
 #ToolBar WPushButton#ShonRecButton,
 #ToolBar WPushButton#ShonAirButton,
+#ToolBar WPushButton#ShonPracticeButton,
+#ToolBar WPushButton#ShonFullscreenButton,
+#ToolBar WPushButton#ShonCloseButton,
 #ToolBar WPushButton#ShonSettingsButton {
   background-color: transparent;
   border: none;
@@ -3370,6 +3382,8 @@ WSearchLineEdit::indicator:unchecked:selected {
 }
 #ToolBar WPushButton#ShonRecButton:hover,
 #ToolBar WPushButton#ShonAirButton:hover,
+#ToolBar WPushButton#ShonPracticeButton:hover,
+#ToolBar WPushButton#ShonFullscreenButton:hover,
 #ToolBar WPushButton#ShonSettingsButton:hover {
   background-color: #1f1f23;
 }
@@ -3387,6 +3401,10 @@ WSearchLineEdit::indicator:unchecked:selected {
 }
 #ToolBar WPushButton#ShonAirButton[displayValue="3"],
 #ToolBar WPushButton#ShonAirButton[displayValue="4"] { image: url(skin:/palemoon/buttons/shon_air_err.svg); }
+#ToolBar WPushButton#ShonFullscreenButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_fullscreen_off.svg); }
+#ToolBar WPushButton#ShonFullscreenButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_fullscreen_on.svg); }
+#ToolBar WPushButton#ShonCloseButton { image: url(skin:/palemoon/buttons/shon_close.svg); }
+#ToolBar WPushButton#ShonCloseButton:hover { background-color: #ff3b30; }
 #ToolBar WPushButton#ShonSettingsButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_gear_off.svg); }
 #ToolBar WPushButton#ShonSettingsButton[displayValue="1"] {
   image: url(skin:/palemoon/buttons/shon_gear_on.svg);
@@ -3432,3 +3450,398 @@ WSearchLineEdit::indicator:unchecked:selected {
   image: url(skin:/palemoon/buttons/shon_eye_on.svg);
   background-color: #2f6bff;
 }
+
+/* ===== Shon stem controls ===== */
+#ShonStemControls { background-color: #151517; border-right: 1px solid #2a2a2e; }
+#ShonStemLabel { font-family: "Open Sans Semibold", "Open Sans"; font-size: 11px; padding-left: 0px; }
+WPushButton#ShonStemLinesToggle {
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 10px;
+  color: #8a8a92;
+  background-color: transparent;
+  border: none;
+  border-image: none;
+  border-radius: 6px;
+  text-align: left;
+  padding-left: 0px;
+}
+WPushButton#ShonStemLinesToggle:hover { color: #e6e6e6; }
+WPushButton#ShonStemLinesToggle[displayValue="1"] { color: #2f6bff; }
+WPushButton#ShonStemMute {
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 10px;
+  color: #8a8a92;
+  background-color: #1f1f23;
+  border: none;
+  border-image: none;
+  border-radius: 5px;
+  margin: 0px;
+  padding: 0px;
+  outline: none;
+}
+WPushButton#ShonStemMute:hover { color: #e6e6e6; }
+WPushButton#ShonStemMute[displayValue="1"] { color: #ffffff; background-color: #ff3b30; }
+
+/************** Shon: library sidebar, search and preview ********************/
+
+WLibrarySidebar {
+  background-color: #111113;
+  alternate-background-color: #111113;
+  color: #d8d8dc;
+  border: none;
+  border-right: 1px solid #1f1f23;
+  padding: 6px 0px;
+  selection-background-color: #23408f;
+}
+WLibrarySidebar:focus {
+  border: none;
+  border-right: 1px solid #1f1f23;
+}
+WLibrarySidebar::item {
+  padding: 4px 2px;
+  border: none;
+}
+WLibrarySidebar::item:hover {
+  background-color: #18181b;
+}
+WLibrarySidebar::item:selected,
+WLibrarySidebar::item:selected:focus {
+  background-color: #23408f;
+  color: #ffffff;
+  border: none;
+  outline: none;
+}
+WLibrarySidebar::item:!selected:focus {
+  border: none;
+  outline: none;
+}
+WLibrarySidebar::branch:closed:has-children:!has-siblings:selected,
+WLibrarySidebar::branch:closed:has-children:has-siblings:selected,
+WLibrarySidebar::branch:open:has-children:!has-siblings:selected,
+WLibrarySidebar::branch:open:has-children:has-siblings:selected {
+  background-color: #23408f;
+}
+WLibrarySidebar::branch:closed:!has-children:!has-siblings:selected,
+WLibrarySidebar::branch:closed:!has-children:has-siblings:selected,
+WLibrarySidebar::branch:open:!has-children:!has-siblings:selected,
+WLibrarySidebar::branch:open:!has-children:has-siblings:selected {
+  background-color: #111113;
+}
+
+WSearchLineEdit {
+  background-color: #18181b;
+  color: #e6e6e6;
+  border: 1px solid #2a2a2e;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+WSearchLineEdit:focus {
+  border: 1px solid #2f6bff;
+}
+
+#LibSidebarContainer,
+#SidebarBox,
+#SearchTreeSpacer,
+#PreviewDeck {
+  background-color: #111113;
+}
+#PreviewDeck {
+  border: none;
+  border-bottom: 1px solid #1f1f23;
+  padding: 4px 4px;
+}
+#PreviewLabel {
+  color: #6a6a72;
+  font-size: 12px;
+  padding-left: 4px;
+}
+#PreviewTitle, #PreviewBPM {
+  color: #d8d8dc;
+}
+
+
+/************** Shon: no focus outlines in the library, clean preview player **/
+
+WTrackTableView,
+WTrackTableView:focus,
+WLibraryTextBrowser:focus {
+  border: none;
+}
+WTrackTableView::item:!selected:focus {
+  outline: none;
+}
+WTrackTableView QCheckBox:focus {
+  outline: none;
+}
+WTrackTableView {
+  qproperty-focusBorderColor: transparent;
+}
+
+#PreviewDeck {
+  background-color: #111113;
+  padding: 6px 8px;
+}
+WPushButton#PlayPreview,
+WPushButton#PlayPreview[displayValue="0"],
+WPushButton#PlayPreview[displayValue="1"] {
+  border: none;
+  border-image: none;
+  border-radius: 8px;
+  margin: 0px;
+  background-color: #1f1f23;
+}
+WPushButton#PlayPreview[displayValue="0"] {
+  image: url(skin:/palemoon/buttons/shon_preview_play.svg) no-repeat center center;
+}
+WPushButton#PlayPreview[displayValue="1"] {
+  background-color: #2f6bff;
+  image: url(skin:/palemoon/buttons/shon_preview_pause.svg) no-repeat center center;
+}
+#PreviewDeck #OverviewBox {
+  border: none;
+  border-radius: 6px;
+  background-color: #0b0b0d;
+}
+
+
+/************** Shon: flat, rounded deck and mixer buttons *********************/
+
+#DeckRows234 WPushButton,
+#DeckRows2345 WPushButton,
+#Deck WPushButton,
+#DecksLeft WPushButton,
+#DecksRight WPushButton,
+#MixerContainer WPushButton,
+#FxUnitContainer WPushButton {
+  border: none;
+  border-radius: 5px;
+  margin: 1px;
+}
+#DecksLeft WPushButton[displayValue="0"],
+#DecksRight WPushButton[displayValue="0"],
+#Deck WPushButton[displayValue="0"] {
+  color: #b4b4bc;
+}
+WPushButton#HotcueButton {
+  border-radius: 0px;
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-weight: normal;
+}
+WPushButton#ShonLoopSize {
+  background-color: #1c1c20;
+  color: #c8c8d0;
+  font-size: 13px;
+  border: none;
+  border-radius: 5px;
+  margin: 1px;
+}
+WPushButton#ShonLoopSize:hover {
+  color: #ffffff;
+  background-color: #26262b;
+}
+WPushButton#HotcueButton[displayValue="0"] {
+  background-color: #1c1c20;
+  color: #5a5a62;
+}
+
+WBeatSpinBox {
+  color: #e6e6ea;
+}
+
+/************** Shon: more breathing room in the decks *************************/
+
+#DeckRow_1_KeyVinylFx {
+  margin-bottom: 4px;
+}
+#DeckRow_5_LoopCuesTransport {
+  margin-top: 6px;
+}
+#DecksLeft WPushButton,
+#DecksRight WPushButton,
+#Deck WPushButton {
+  margin: 2px;
+}
+
+/************** Shon: outlined buttons (black ring, background shows through) */
+
+#DecksLeft WPushButton,
+#DecksRight WPushButton,
+#Deck WPushButton,
+#MixerContainer WPushButton {
+  border: 1px solid #070708;
+  border-radius: 6px;
+}
+#DecksLeft WPushButton[displayValue="0"],
+#DecksRight WPushButton[displayValue="0"],
+#Deck WPushButton[displayValue="0"],
+#MixerContainer WPushButton[displayValue="0"],
+WPushButton#HotcueButton[displayValue="0"],
+WPushButton#ShonLoopSize {
+  background-color: transparent;
+}
+#DecksLeft WPushButton:hover,
+#DecksRight WPushButton:hover,
+#Deck WPushButton:hover,
+#MixerContainer WPushButton:hover,
+WPushButton#ShonLoopSize:hover {
+  border-color: #2f2f35;
+}
+WPushButton#HotcueButton {
+  border: 1px solid #070708;
+  border-radius: 0px;
+}
+WPushButton#ShonLoopSize {
+  border: 1px solid #070708;
+}
+
+#ToolBar WPushButton#ShonPracticeButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_practice_off.svg); }
+#ToolBar WPushButton#ShonPracticeButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_practice_on.svg); }
+
+/* Shon: CUE as crisp text instead of a stretched image */
+WPushButton#CueDeck,
+#CueDeck[displayValue="0"],
+#CueDeck[displayValue="1"] {
+  image: none;
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 12px;
+  color: #c8c8d0;
+}
+#CueDeck[displayValue="1"] {
+  color: #ffffff;
+}
+
+/* Shon: clean play button, no stacked rings, centered icon */
+WPushButton#PlayDeck[value="0"] {
+  image: url(skin:/palemoon/buttons/shon_play.svg);
+  image-position: center;
+}
+WPushButton#PlayDeck[value="1"] {
+  image: url(skin:/palemoon/buttons/shon_pause.svg);
+  image-position: center;
+}
+#DeckRow_5_LoopCuesTransport WPushButton#PreviewIndicator,
+#DeckRow_5_LoopCuesTransport WPushButton#PlayIndicator,
+#DeckRow_5_LoopCuesTransport WPushButton#PlayIndicator[displayValue="0"],
+#DeckRow_5_LoopCuesTransport WPushButton#PlayIndicator[displayValue="1"] {
+  border: none;
+  background-color: transparent;
+  image: none;
+}
+#DeckRow_5_LoopCuesTransport WPushButton#PreviewIndicator[value="1"] {
+  border: 2px solid #2f6bff;
+  border-radius: 6px;
+}
+
+/* Shon: FX1 / FX2 as small flat pills */
+#FxAssignButtons WPushButton {
+  border: none;
+  border-image: none;
+  border-radius: 4px;
+  margin: 1px;
+  font-family: "Open Sans Semibold", "Open Sans";
+  font-size: 11px;
+  color: #8a8a92;
+  background-color: transparent;
+}
+#FxAssignButtons WPushButton[displayValue="1"] {
+  color: #8be08b;
+  background-color: #1f3d1f;
+}
+#FxAssignButtons WPushButton:hover {
+  color: #e6e6ea;
+}
+
+/* Shon: no divider lines or boxes inside the decks, one flat background */
+#ExpandingBottomBorder,
+#DeckRows12345,
+#DeckRows234,
+#DeckRows2345,
+#DeckRow_1_KeyVinylFx,
+#DeckRow_2_3_ArtistTitleTime,
+#DeckRow_4_OverviewSpinny,
+#DeckRow_5_LoopCuesTransport,
+#DeckSettingsContainer,
+#DeckSettings,
+#DeckSettingsGrid,
+#SpinnyCoverContainer_Big,
+#SpinnyCoverContainer_Small,
+#OverviewBox,
+#DeckOverview1, #DeckOverview2, #DeckOverview3, #DeckOverview4,
+#KeyText,
+#DecksLeft WStarRating,
+#DecksRight WStarRating {
+  border: none;
+  background-color: transparent;
+}
+
+/* Shon: overview full width, settings strip under it, deck a bit taller */
+#ShonOverviewRow, #DeckSettings, #Stars { border: none; background-color: transparent; }
+#DeckRows12345, #DeckRows234 { padding: 2px 0px 6px 1px; }
+
+/* Shon: no frame around the vinyl */
+#SpinnyCoverContainer_Small, #SpinnyCoverContainer_Big, #SpinnyContainer,
+#SpinnyCoverContainer_Small *, #SpinnyCoverContainer_Big *, WSpinny {
+  border: none;
+  background-color: transparent;
+}
+
+/* Shon: artist smaller and grey under the title */
+#Deck1 #ArtistText, #Deck2 #ArtistText, #Deck3 #ArtistText, #Deck4 #ArtistText,
+#DeckCompact1 #ArtistText, #DeckCompact2 #ArtistText, #DeckCompact3 #ArtistText, #DeckCompact4 #ArtistText {
+  color: #9a9aa2;
+  font-size: 14px;
+  font-weight: normal;
+}
+
+/* Shon: BPM readout is just text, no button ring */
+#DecksLeft WPushButton#BpmTap, #DecksRight WPushButton#BpmTap,
+#DecksLeft WPushButton#BpmTap[displayValue="0"], #DecksRight WPushButton#BpmTap[displayValue="0"],
+#DecksLeft WPushButton#BpmTap[displayValue="1"], #DecksRight WPushButton#BpmTap[displayValue="1"],
+#DecksLeft WPushButton#BpmTap:hover, #DecksRight WPushButton#BpmTap:hover,
+#DecksLeft WPushButton#BpmTap[pressed="true"], #DecksRight WPushButton#BpmTap[pressed="true"],
+WPushButton#BpmTap, #BpmTapContainer, #BpmTapContainer:hover {
+  border: none;
+  background-color: transparent;
+}
+
+/* Shon: no extra padding, the buttons use the space instead */
+#DeckRows12345, #DeckRows234 { padding: 2px 0px 2px 1px; }
+#DeckRow_5_LoopCuesTransport { margin-top: 4px; }
+
+/* Shon: ADD as a plus icon */
+#ToolBar WPushButton#ShonAddButton {
+  background-color: transparent;
+  border: none;
+  border-image: none;
+  border-radius: 6px;
+  margin: 0px;
+  padding: 0px;
+  outline: none;
+  image: url(skin:/palemoon/buttons/shon_add.svg);
+}
+#ToolBar WPushButton#ShonAddButton:hover {
+  background-color: #1f1f23;
+  image: url(skin:/palemoon/buttons/shon_add_hover.svg);
+}
+
+/* Shon: mode buttons as icons. Grey off, white on blue when on. */
+#ToolBar WPushButton#ShonAwayButton, #ToolBar WPushButton#ShonMatchButton, #ToolBar WPushButton#ShonRequestsButton, #ToolBar WPushButton#ShonPhoneButton {
+  background-color: transparent;
+  border: none;
+  border-image: none;
+  border-radius: 6px;
+  margin: 0px;
+  padding: 0px;
+  outline: none;
+}
+#ToolBar WPushButton#ShonAwayButton:hover, #ToolBar WPushButton#ShonMatchButton:hover, #ToolBar WPushButton#ShonRequestsButton:hover, #ToolBar WPushButton#ShonPhoneButton:hover {
+  background-color: #1f1f23;
+}
+#ToolBar WPushButton#ShonAwayButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_away_off.svg); }
+#ToolBar WPushButton#ShonAwayButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_away_on.svg); background-color: #2f6bff; }
+#ToolBar WPushButton#ShonMatchButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_match_off.svg); }
+#ToolBar WPushButton#ShonMatchButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_match_on.svg); background-color: #2f6bff; }
+#ToolBar WPushButton#ShonRequestsButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_requests_off.svg); }
+#ToolBar WPushButton#ShonRequestsButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_requests_on.svg); background-color: #2f6bff; }
+#ToolBar WPushButton#ShonPhoneButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_phone_off.svg); }
+#ToolBar WPushButton#ShonPhoneButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_phone_on.svg); background-color: #2f6bff; }

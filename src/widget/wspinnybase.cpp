@@ -246,8 +246,11 @@ namespace {
 // Shon: turn album art into a vinyl record. Black disc with faint grooves,
 // the art cropped into a circular center label, and a spindle hole.
 // The whole record rotates with the platter.
-QPixmap shonMakeRecord(const QPixmap& cover, const QSize& widgetSize, qreal dpr) {
-    if (cover.isNull() || widgetSize.isEmpty()) {
+QPixmap shonMakeRecord(const QPixmap& cover,
+        const QSize& widgetSize,
+        qreal dpr,
+        const QPixmap& logo = QPixmap()) {
+    if ((cover.isNull() && logo.isNull()) || widgetSize.isEmpty()) {
         return QPixmap();
     }
     const int side = static_cast<int>(
@@ -263,6 +266,22 @@ QPixmap shonMakeRecord(const QPixmap& cover, const QSize& widgetSize, qreal dpr)
 
     const QPointF center(side / 2.0, side / 2.0);
     const double radius = side / 2.0;
+
+    if (!logo.isNull()) {
+        // Stealth: keep the plain platter exactly as it is and just lay the
+        // ShonDJ logo across it, so it spins with the song.
+        const double logoWidth = radius * 1.5;
+        const double logoHeight = logoWidth * logo.height() / logo.width();
+        p.drawPixmap(QRectF(center.x() - logoWidth / 2,
+                             center.y() - logoHeight / 2,
+                             logoWidth,
+                             logoHeight),
+                logo,
+                QRectF(logo.rect()));
+        p.end();
+        record.setDevicePixelRatio(dpr);
+        return record;
+    }
 
     // Vinyl disc.
     QRadialGradient vinyl(center, radius);
@@ -319,13 +338,15 @@ void WSpinnyBase::setLoadedCover(const QPixmap& pixmap) {
 }
 
 void WSpinnyBase::shonRebuildRecord() {
-    QPixmap label = m_loadedCover;
-    if (!label.isNull() && shonStealthActive()) {
-        // Stealth: a plain dark label so the art can't give the song away.
-        label = QPixmap(64, 64);
-        label.fill(QColor(42, 42, 48));
+    if (shonStealthActive()) {
+        // Stealth: the record keeps spinning, with the ShonDJ logo as label.
+        static const QPixmap kLogo(QStringLiteral(":/images/shon/logo.png"));
+        m_loadedCoverScaled = m_pLoadedTrack
+                ? shonMakeRecord(QPixmap(), size(), devicePixelRatioF(), kLogo)
+                : QPixmap();
+        return;
     }
-    m_loadedCoverScaled = shonMakeRecord(label, size(), devicePixelRatioF());
+    m_loadedCoverScaled = shonMakeRecord(m_loadedCover, size(), devicePixelRatioF());
 }
 
 void WSpinnyBase::slotLoadTrack(TrackPointer pTrack) {

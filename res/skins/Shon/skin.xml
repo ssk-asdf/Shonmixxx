@@ -232,7 +232,7 @@
       <SetVariable name="ArcThicknessBig">2</SetVariable>
       <SetVariable name="ArcRoundCaps">true</SetVariable>
       <!-- Arc Colors -->
-      <SetVariable name="ArcColorEq">#858585</SetVariable>
+      <SetVariable name="ArcColorEq">#2f6bff</SetVariable>
       <SetVariable name="ArcColorGain">#b96300</SetVariable>
       <SetVariable name="ArcColorFx12Quick">#518f00</SetVariable>
       <SetVariable name="ArcColorFx34">#028392</SetVariable>
@@ -252,9 +252,9 @@
 
       <!-- Slider bar settings -->
       <SetVariable name="BarBgColor">#020202</SetVariable>
-      <SetVariable name="BarColorVolume">#257b82</SetVariable>
-      <SetVariable name="BarColorCrossfader">#257b82</SetVariable>
-      <SetVariable name="BarColorPitch">#888</SetVariable>
+      <SetVariable name="BarColorVolume">#00000000</SetVariable>
+      <SetVariable name="BarColorCrossfader">#00000000</SetVariable>
+      <SetVariable name="BarColorPitch">#00000000</SetVariable>
       <SetVariable name="BarWidth">2</SetVariable>
       <SetVariable name="BarMarginVolume">8,8</SetVariable>
       <SetVariable name="BarMarginPitch">7,8</SetVariable>

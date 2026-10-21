@@ -45,12 +45,6 @@ WaveformWidget::WaveformWidget(QWidget* parent,
     m_pWaveformRenderMarkRange = pOpacityNode->appendChildNode(
             addRendererNode<WaveformRenderMarkRange>());
 
-#ifdef __STEM__
-    // The following two renderers work in tandem: if the rendered waveform is
-    // for a stem track, WaveformRendererSignalBase will skip rendering and let
-    // WaveformRendererStem do the rendering, and vice-versa.
-    pOpacityNode->appendChildNode(addRendererNode<WaveformRendererStem>());
-#endif
     std::unique_ptr<WaveformRendererSignalBase> pWaveformRendererSignal = addWaveformSignalRenderer(
             type, options, ::WaveformRendererAbstract::Play);
     m_pWaveformRendererSignal = pWaveformRendererSignal.get();
@@ -59,6 +53,10 @@ WaveformWidget::WaveformWidget(QWidget* parent,
         DEBUG_ASSERT(pNode);
         pOpacityNode->appendChildNode(std::unique_ptr<rendergraph::BaseNode>(pNode));
     }
+#ifdef __STEM__
+    // Shon: stem lines draw on top of the main waveform.
+    pOpacityNode->appendChildNode(addRendererNode<WaveformRendererStem>());
+#endif
     pOpacityNode->appendChildNode(addRendererNode<WaveformRenderBeat>());
     m_pWaveformRenderMark = pOpacityNode->appendChildNode(addRendererNode<WaveformRenderMark>());
 

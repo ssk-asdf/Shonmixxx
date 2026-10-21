@@ -24,19 +24,19 @@
                   <PushButton>
                     <TooltipId>cue_default_cue_gotoandstop</TooltipId>
                     <ObjectName>CueDeck</ObjectName>
-                    <Size>42f,26f</Size>
+                    <Size>72f,32f</Size>
                     <NumberStates>2</NumberStates>
                     <RightClickIsPushButton>true</RightClickIsPushButton>
                     <State>
                       <Number>0</Number>
-                      <Text><Variable name="state_0_text"/></Text>
+                      <Text>CUE</Text>
                       <Alignment><Variable name="Align"/></Alignment>
                       <Unpressed scalemode="STRETCH">skin:/<Variable name="BtnScheme"/>/buttons/btn_<Variable name="BtnType"/>_medium.svg</Unpressed>
                       <Pressed scalemode="STRETCH">skin:/<Variable name="BtnScheme"/>/buttons/btn_<Variable name="BtnType"/>_medium_active.svg</Pressed>
                     </State>
                     <State>
                       <Number>1</Number>
-                      <Text><Variable name="state_1_text"/></Text>
+                      <Text>CUE</Text>
                       <Alignment><Variable name="Align"/></Alignment>
                       <Unpressed scalemode="STRETCH">skin:/<Variable name="BtnScheme"/>/buttons/btn_<Variable name="BtnType"/>_medium_set.svg</Unpressed>
                       <Pressed scalemode="STRETCH">skin:/<Variable name="BtnScheme"/>/buttons/btn_<Variable name="BtnType"/>_medium_active.svg</Pressed>
@@ -55,26 +55,18 @@
                     </Connection>
                   </PushButton>
 
-                  <Template src="skin:/controls/button_1state_right.xml">
-                    <SetVariable name="TooltipId">reverse</SetVariable>
-                    <SetVariable name="ObjectName">Reverse</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
-                    <SetVariable name="BtnSize">square</SetVariable>
-                    <SetVariable name="ConfigKey"><Variable name="Group"/>,reverse</SetVariable>
-                    <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,reverseroll</SetVariable>
-                  </Template>
 
                 </Children>
               </WidgetGroup><!-- Reverse | Cue -->
 
               <WidgetGroup><!-- Play + PlayBlink + default dark background -->
                 <Layout>stacked</Layout>
-                <Size>68f,26f</Size>
+                <Size>72f,32f</Size>
                 <Children>
                   <Template src="skin:/controls/button_2state_right_display.xml">
                     <SetVariable name="TooltipId">play_cue_set</SetVariable>
                     <SetVariable name="ObjectName">PlayDeck</SetVariable>
-                    <SetVariable name="Size">68f,26f</SetVariable>
+                    <SetVariable name="Size">72f,32f</SetVariable>
                     <SetVariable name="BtnSize">play</SetVariable>
                     <SetVariable name="ConfigKey"><Variable name="Group"/>,play</SetVariable>
                     <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,cue_set</SetVariable>
@@ -82,7 +74,7 @@
                   </Template>
                   <PushButton>
                     <ObjectName>PreviewIndicator</ObjectName>
-                    <Size>68f,26f</Size>
+                    <Size>72f,32f</Size>
                     <NumberStates>2</NumberStates>
                     <Connection>
                       <ConfigKey><Variable name="Group"/>,play</ConfigKey>
@@ -90,7 +82,7 @@
                   </PushButton>
                   <PushButton>
                     <ObjectName>PlayIndicator</ObjectName>
-                    <Size>68f,26f</Size>
+                    <Size>72f,32f</Size>
                     <NumberStates>2</NumberStates>
                     <Connection>
                       <ConfigKey><Variable name="Group"/>,play_indicator</ConfigKey>
@@ -102,8 +94,8 @@
             </Children>
           </WidgetGroup>
 
-          <WidgetGroup><Size>2f,0min</Size></WidgetGroup><!--  = 2-10px wide -->
-          <WidgetGroup><SizePolicy>i,min</SizePolicy><MaximumSize>8,</MaximumSize></WidgetGroup>
+          <WidgetGroup><Size>6f,0min</Size></WidgetGroup>
+          <WidgetGroup><SizePolicy>me,min</SizePolicy></WidgetGroup>
 
           <WidgetGroup><!-- HotCues -->
             <Layout>vertical</Layout>
@@ -113,20 +105,20 @@
                 <Layout>horizontal</Layout>
                 <Children>
 
-                  <Template src="skin:/controls/button_hotcue.xml">
+                  <Template src="skin:/controls/button_hotcue_deck.xml">
                     <SetVariable name="number">1</SetVariable>
                   </Template>
-                  <Template src="skin:/controls/button_hotcue.xml">
+                  <Template src="skin:/controls/button_hotcue_deck.xml">
                     <SetVariable name="number">2</SetVariable>
                   </Template>
 
                   <WidgetGroup>
                     <Layout>horizontal</Layout>
                     <Children>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">3</SetVariable>
                       </Template>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">4</SetVariable>
                       </Template>
                     </Children>
@@ -144,10 +136,10 @@
                   <WidgetGroup>
                     <Layout>horizontal</Layout>
                     <Children>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">3</SetVariable>
                       </Template>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">4</SetVariable>
                       </Template>
                     </Children>
@@ -156,16 +148,16 @@
                   <WidgetGroup  trigger="[Skin],show_8_hotcues">
                     <Layout>horizontal</Layout>
                     <Children>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">5</SetVariable>
                       </Template>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">6</SetVariable>
                       </Template>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">7</SetVariable>
                       </Template>
-                      <Template src="skin:/controls/button_hotcue.xml">
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">8</SetVariable>
                       </Template>
                     </Children>
@@ -179,60 +171,15 @@
             </Connection>
           </WidgetGroup><!-- HotCues -->
 
-          <WidgetGroup><Size>2f,0min</Size></WidgetGroup><!--  = 2-8px wide -->
-          <WidgetGroup><SizePolicy>i,min</SizePolicy><MaximumSize>8,</MaximumSize></WidgetGroup>
+          <WidgetGroup><SizePolicy>me,min</SizePolicy></WidgetGroup>
+          <WidgetGroup><Size>6f,0min</Size></WidgetGroup>
 
-          <WidgetGroup><!-- Intro + Outro -->
-            <Layout>vertical</Layout>
-            <SizePolicy>me,min</SizePolicy>
-            <MaximumSize>52,52</MaximumSize>
-            <Children>
-              <WidgetGroup><!-- Intro -->
-                <ObjectName>AlignLeftTop</ObjectName>
-                <SizePolicy>me,min</SizePolicy>
-                <Layout>horizontal</Layout>
-                <Children>
-                  <Template src="skin:/controls/button_special_cue.xml">
-                    <SetVariable name="CueType">intro_start</SetVariable>
-                  </Template>
-
-                  <Template src="skin:/controls/button_special_cue.xml">
-                    <SetVariable name="CueType">intro_end</SetVariable>
-                  </Template>
-                </Children>
-              </WidgetGroup>
-              <WidgetGroup><!-- Outro -->
-                <ObjectName>AlignLeftTop</ObjectName>
-                <SizePolicy>me,min</SizePolicy>
-                <Layout>horizontal</Layout>
-                <Children>
-                  <Template src="skin:/controls/button_special_cue.xml">
-                    <SetVariable name="CueType">outro_start</SetVariable>
-                  </Template>
-
-                  <Template src="skin:/controls/button_special_cue.xml">
-                    <SetVariable name="CueType">outro_end</SetVariable>
-                  </Template>
-                </Children>
-              </WidgetGroup>
-            </Children>
-            <Connection>
-              <ConfigKey>[Skin],show_intro_outro_cues</ConfigKey>
-              <BindProperty>visible</BindProperty>
-            </Connection>
-          </WidgetGroup><!-- / Intro + Outro -->
-
-          <WidgetGroup><Size>2f,0min</Size></WidgetGroup><!--  = 2-8px wide -->
-          <WidgetGroup><SizePolicy>i,min</SizePolicy><MaximumSize>80,</MaximumSize></WidgetGroup>
-
-          <WidgetGroup><!-- Loop buttons + beatloop size spinbox -->
+          <WidgetGroup><!-- Shon: loops and jumps, one 3 x 2 block -->
             <ObjectName>LoopControls</ObjectName>
             <Layout>vertical</Layout>
             <SizePolicy>min,min</SizePolicy>
-            <MinimumSize>78,52</MinimumSize>
-            <MaximumSize>104,52</MaximumSize>
             <Children>
-              <WidgetGroup><!-- loop enable + beatloop size -->
+              <WidgetGroup>
                 <ObjectName>AlignLeftTop</ObjectName>
                 <Layout>horizontal</Layout>
                 <SizePolicy>min,max</SizePolicy>
@@ -240,102 +187,33 @@
                   <Template src="skin:/controls/button_2state_right_display.xml">
                     <SetVariable name="TooltipId">beatloop_activate</SetVariable>
                     <SetVariable name="ObjectName">LoopActivate</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
+                    <SetVariable name="Size">34f,32f</SetVariable>
                     <SetVariable name="ConfigKey"><Variable name="Group"/>,beatloop_activate</SetVariable>
                     <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,beatlooproll_activate</SetVariable>
                     <SetVariable name="ConfigKeyDisp"><Variable name="Group"/>,loop_enabled</SetVariable>
                   </Template>
-
-                  <BeatSpinBox>
-                    <TooltipId>beatloop_size</TooltipId>
-                    <ObjectName>Spinbox_<Variable name="BtnType"/></ObjectName>
-                    <SizePolicy>me,min</SizePolicy>
-                    <MinimumSize>46,26</MinimumSize>
-                    <MaximumSize>78,26</MaximumSize>
-                    <Value><Variable name="Group"/>,beatloop_size</Value>
-                    <!-- disabled until 'highlight' property has been added to WBeatSpinBox / wbasewidget.
+                  <PushButton>
+                    <Tooltip>Halve the loop</Tooltip>
+                    <ObjectName>ShonLoopSize</ObjectName>
+                    <Size>34f,32f</Size>
+                    <NumberStates>1</NumberStates>
+                    <State><Number>0</Number><Text>▾</Text></State>
                     <Connection>
-                      <ConfigKey><Variable name="Group"/>,track_loaded</ConfigKey>
-                      <BindProperty>highlight</BindProperty>
-                    </Connection> -->
-                  </BeatSpinBox>
-                </Children>
-              </WidgetGroup>
-
-              <WidgetGroup>
-                <ObjectName>AlignLeftTop</ObjectName>
-                <Layout>horizontal</Layout>
-                <SizePolicy>min,max</SizePolicy>
-                <Children>
-                  <Template src="skin:/controls/button_2state_right.xml">
-                    <SetVariable name="TooltipId">reloop_toggle</SetVariable>
-                    <SetVariable name="ObjectName">Reloop</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
-                    <SetVariable name="ConfigKey"><Variable name="Group"/>,reloop_toggle</SetVariable>
-                    <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,reloop_andstop</SetVariable>
-                  </Template>
-
-                  <Template src="skin:/controls/button_1state_right.xml">
-                    <SetVariable name="TooltipId">loop_in</SetVariable>
-                    <SetVariable name="ObjectName">LoopIn</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
-                    <SetVariable name="ConfigKey"><Variable name="Group"/>,loop_in</SetVariable>
-                    <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,loop_in_goto</SetVariable>
-                  </Template>
-
-                  <Template src="skin:/controls/button_1state_right.xml">
-                    <SetVariable name="TooltipId">loop_out</SetVariable>
-                    <SetVariable name="ObjectName">LoopOut</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
-                    <SetVariable name="ConfigKey"><Variable name="Group"/>,loop_out</SetVariable>
-                    <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,loop_out_goto</SetVariable>
-                  </Template>
-
-                  <Template src="skin:/controls/button_2state_persist.xml">
-                    <SetVariable name="TooltipId">loop_anchor</SetVariable>
-                    <SetVariable name="ObjectName">LoopAnchor</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
-                    <SetVariable name="ConfigKey"><Variable name="Group"/>,loop_anchor</SetVariable>
-                  </Template>
-                </Children>
-              </WidgetGroup>
-            </Children>
-            <Connection>
-              <ConfigKey>[Skin],show_loop_controls</ConfigKey>
-              <BindProperty>visible</BindProperty>
-            </Connection>
-          </WidgetGroup><!-- /Loop buttons + beatloop size spinbox -->
-
-          <WidgetGroup><Size>2f,0min</Size></WidgetGroup><!--  = 2-80px wide -->
-          <WidgetGroup><SizePolicy>i,min</SizePolicy><MaximumSize>80,</MaximumSize></WidgetGroup>
-
-          <WidgetGroup><!-- Jump buttons + beatjump size spinbox -->
-            <ObjectName>BeatjumpControls</ObjectName>
-            <Layout>vertical</Layout>
-            <SizePolicy>min,min</SizePolicy>
-            <MinimumSize>52,52</MinimumSize>
-            <MaximumSize>60,52</MaximumSize>
-            <Children>
-              <WidgetGroup><!-- beatjump size -->
-                <ObjectName>AlignLeftTop</ObjectName>
-                <Layout>horizontal</Layout>
-                <SizePolicy>0min,26f</SizePolicy>
-                <Children>
-                  <!-- put this spacer here so BeatSpinBox expands with HiDPI scaling
-                  <WidgetGroup><Size>0f,26f</Size></WidgetGroup> -->
-                  <BeatSpinBox>
-                    <TooltipId>beatjump_size</TooltipId>
-                    <ObjectName>Spinbox_<Variable name="BtnType"/></ObjectName>
-                    <SizePolicy>me,min</SizePolicy>
-                    <MinimumSize>46,26</MinimumSize>
-                    <MaximumSize>72,26</MaximumSize>
-                    <Value><Variable name="Group"/>,beatjump_size</Value>
-                    <!-- disabled until 'highlight' property has been added to WBeatSpinBox / wbasewidget.
+                      <ConfigKey><Variable name="Group"/>,loop_halve</ConfigKey>
+                      <ButtonState>LeftButton</ButtonState>
+                    </Connection>
+                  </PushButton>
+                  <PushButton>
+                    <Tooltip>Double the loop</Tooltip>
+                    <ObjectName>ShonLoopSize</ObjectName>
+                    <Size>34f,32f</Size>
+                    <NumberStates>1</NumberStates>
+                    <State><Number>0</Number><Text>▴</Text></State>
                     <Connection>
-                      <ConfigKey><Variable name="Group"/>,track_loaded</ConfigKey>
-                      <BindProperty>highlight</BindProperty>
-                    </Connection> -->
-                  </BeatSpinBox>
+                      <ConfigKey><Variable name="Group"/>,loop_double</ConfigKey>
+                      <ButtonState>LeftButton</ButtonState>
+                    </Connection>
+                  </PushButton>
                 </Children>
               </WidgetGroup>
               <WidgetGroup>
@@ -343,33 +221,53 @@
                 <Layout>horizontal</Layout>
                 <SizePolicy>min,max</SizePolicy>
                 <Children>
-
                   <Template src="skin:/controls/button_1state_right.xml">
                     <SetVariable name="TooltipId">beatjump_backward</SetVariable>
                     <SetVariable name="ObjectName">JumpBack</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
+                    <SetVariable name="Size">34f,32f</SetVariable>
                     <SetVariable name="ConfigKey"><Variable name="Group"/>,beatjump_backward</SetVariable>
                     <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,beatjump_1_backward</SetVariable>
                   </Template>
-
+                  <Template src="skin:/controls/button_2state_right.xml">
+                    <SetVariable name="TooltipId">reloop_toggle</SetVariable>
+                    <SetVariable name="ObjectName">Reloop</SetVariable>
+                    <SetVariable name="Size">34f,32f</SetVariable>
+                    <SetVariable name="ConfigKey"><Variable name="Group"/>,reloop_toggle</SetVariable>
+                    <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,reloop_andstop</SetVariable>
+                  </Template>
                   <Template src="skin:/controls/button_1state_right.xml">
                     <SetVariable name="TooltipId">beatjump_forward</SetVariable>
                     <SetVariable name="ObjectName">JumpForward</SetVariable>
-                    <SetVariable name="Size">26f,26f</SetVariable>
+                    <SetVariable name="Size">34f,32f</SetVariable>
                     <SetVariable name="ConfigKey"><Variable name="Group"/>,beatjump_forward</SetVariable>
                     <SetVariable name="ConfigKeyRight"><Variable name="Group"/>,beatjump_1_forward</SetVariable>
                   </Template>
                 </Children>
               </WidgetGroup>
             </Children>
-            <Connection>
-              <ConfigKey>[Skin],show_beatjump_controls</ConfigKey>
-              <BindProperty>visible</BindProperty>
-            </Connection>
-          </WidgetGroup><!-- /Jump buttons + beatjump size spinbox -->
+          </WidgetGroup><!-- /loops and jumps -->
+
+          <WidgetGroup><Size>4f,0min</Size></WidgetGroup>
+          <WidgetGroup>
+            <Layout>vertical</Layout>
+            <SizePolicy>min,max</SizePolicy>
+            <Children>
+              <Template src="skin:/controls/button_2state.xml">
+                <SetVariable name="TooltipId">quantize</SetVariable>
+                <SetVariable name="ObjectName">QuantizeButton<Variable name="DeckGroup"/></SetVariable>
+                <SetVariable name="ConfigKey"><Variable name="Group"/>,quantize</SetVariable>
+                <SetVariable name="Size">34f,32f</SetVariable>
+              </Template>
+              <Template src="skin:/controls/button_1state.xml">
+                <SetVariable name="TooltipId">eject</SetVariable>
+                <SetVariable name="ObjectName">EjectButton<Variable name="DeckGroup"/></SetVariable>
+                <SetVariable name="ConfigKey"><Variable name="Group"/>,eject</SetVariable>
+                <SetVariable name="Size">34f,32f</SetVariable>
+              </Template>
+            </Children>
+          </WidgetGroup>
 
           <WidgetGroup><Size>2f,0min</Size></WidgetGroup>
-          <WidgetGroup><SizePolicy>i,min</SizePolicy></WidgetGroup>
         </Children>
       </WidgetGroup><!-- DeckRow_5_LoopCuesTransport -->
     </Children>

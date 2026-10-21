@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <optional>
 #include <QSharedPointer>
 #include <QString>
 #include <memory>
@@ -158,6 +159,10 @@ class SoundManager : public QObject {
     // routing when it changed, or an empty string when nothing changed.
     QString shonAutoConfigureAtStartup();
     QString shonHandleDeviceChange();
+    /// The saved speaker (a Bluetooth speaker that is off, say) failed to
+    /// open: play through the laptop for now, without forgetting the saved
+    /// setup. It comes back when that device is connected again.
+    QString shonFallbackToLaptop();
 
   signals:
     void deviceAdded(SoundDevicePointer pDevice);
@@ -206,6 +211,7 @@ class SoundManager : public QObject {
     QHash<AudioInput, CSAMPLE*> m_inputBuffers;
 
     SoundManagerConfig m_config;
+    std::optional<SoundManagerConfig> m_shonPendingConfig;
     SoundDevicePointer m_pErrorDevice;
     QHash<AudioOutput, AudioSource*> m_registeredSources;
     QMultiHash<AudioInput, AudioDestination*> m_registeredDestinations;

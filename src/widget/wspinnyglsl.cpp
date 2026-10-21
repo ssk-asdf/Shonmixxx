@@ -101,7 +101,8 @@ void WSpinnyGLSL::paintGL() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glClearColor(0.f, 0.f, 0.f, 1.f);
+    // Shon: clear to the deck grey so no dark edge shows around the platter.
+    glClearColor(21.f / 255.f, 21.f / 255.f, 23.f / 255.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     m_textureShader.bind();

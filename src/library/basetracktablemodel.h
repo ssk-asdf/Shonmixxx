@@ -3,6 +3,7 @@
 #include <QAbstractTableModel>
 #include <QList>
 #include <QPointer>
+#include <QSet>
 #include <optional>
 
 #include "library/columncache.h"
@@ -332,6 +333,16 @@ class BaseTrackTableModel : public QAbstractTableModel, public TrackModel {
     static std::optional<ColorPalette> s_keyColorPalette;
 
     static bool s_bApplyPlayedTrackColor;
+
+  public:
+    /// Shon planned transitions: library ids of songs named in the playing
+    /// track's hot cue labels. They get a gold highlight.
+    static void shonSetPlannedTrackIds(const QSet<qlonglong>& ids) {
+        s_shonPlannedIds = ids;
+    }
+
+  private:
+    static QSet<qlonglong> s_shonPlannedIds;
 
     // Shon smart next-track highlighting.
     // 0 = no match, 1 = BPM and key fit, 2 = BPM, key, and energy all fit.

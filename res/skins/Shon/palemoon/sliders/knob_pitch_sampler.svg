@@ -16,13 +16,13 @@
   <path d="m3.99988 2.99991 22.0001 8.75e-5c0.554 2.2e-6 1 0.892 1 2l-24.0001-8.75e-5c0-1.108 0.446-2 1-2z" fill="#141414"/>
   <g transform="translate(-40)">
     <path d="m3 5.00032h24v1h-24z" fill="#561e0e"/>
-    <path d="m3 7.00032h24v1h-24z" fill="#a74a17"/>
-    <path d="m3 6.00032h24v1h-24z" fill="#8d3b13"/>
+    <path d="m3 7.00032h24v1h-24z" fill="#7c7c84"/>
+    <path d="m3 6.00032h24v1h-24z" fill="#62626a"/>
     <path d="m28 5.00032h-1v1h1z" fill="#37110b"/>
-    <path d="m28 7.00032h-1v1h1z" fill="#7a3612"/>
+    <path d="m28 7.00032h-1v1h1z" fill="#56565d"/>
     <path d="m28 6.00032h-1v1h1z" fill="#57240d"/>
-    <path d="m3 7h-1v1h1z" fill="#b35115"/>
-    <path d="m3 6h-1v1h1z" fill="#994311"/>
+    <path d="m3 7h-1v1h1z" fill="#8a8a92"/>
+    <path d="m3 6h-1v1h1z" fill="#6e6e75"/>
     <path d="m2.0004 5.00032h0.9996v1h-0.9996z" fill="#61230d"/>
   </g>
 </svg>

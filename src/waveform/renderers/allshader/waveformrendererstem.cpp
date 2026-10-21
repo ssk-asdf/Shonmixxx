@@ -1,9 +1,14 @@
 #include "waveform/renderers/allshader/waveformrendererstem.h"
 
 #include <QFont>
+#include <QVector2D>
+#include <QVector4D>
+#include <algorithm>
+#include <cmath>
 #include <QImage>
 #include <QOpenGLTexture>
 
+#include "control/controlobject.h"
 #include "control/controlproxy.h"
 #include "engine/channels/enginedeck.h"
 #include "engine/engine.h"
@@ -16,16 +21,6 @@
 #include "waveform/waveform.h"
 #include "waveform/waveformwidgetfactory.h"
 
-namespace {
-#ifdef __SCENEGRAPH__
-// FIXME this is a workaround an issue with waveform only drawing partially in
-// SG. The workaround is to reduce the the number of vertices, by reducing the
-// precision of waveform strips.
-const float kPixelPerStrip = 2;
-#else
-const float kPixelPerStrip = 1;
-#endif
-} // namespace
 
 using namespace rendergraph;
 
@@ -115,174 +110,177 @@ void WaveformRendererStem::preprocess() {
 }
 
 bool WaveformRendererStem::preprocessInner() {
+    // Shon: Spotify style level lines. Each stem gets a thin line whose height
+    // is its level (top is full, bottom is off). Behind the playhead the line
+    // shows what you did, so a slow fade draws a ramp. Ahead it stays flat at
+    // the current level. Only drawn when stem lines are on.
     TrackPointer pTrack = m_waveformRenderer->getTrackInfo();
-
-    if (!pTrack || (m_isSlipRenderer && !m_waveformRenderer->isSlipActive())) {
+    if (!pTrack || m_isSlipRenderer) {
+        return false;
+    }
+    if (ControlObject::get(ConfigKey(QStringLiteral("[Shon]"),
+                QStringLiteral("stem_lines"))) <= 0.0) {
+        return false;
+    }
+    const auto stemInfo = pTrack->getStemInfo();
+    const int stemCount = std::min(static_cast<int>(stemInfo.size()),
+            static_cast<int>(mixxx::kMaxSupportedStems));
+    if (stemCount <= 0) {
+        return false;
+    }
+    const double trackSamples = m_waveformRenderer->getTrackSamples();
+    if (trackSamples <= 0) {
         return false;
     }
 
-    auto stemInfo = pTrack->getStemInfo();
-    // If this track isn't a stem track, skip the rendering
-    if (stemInfo.isEmpty()) {
-        return false;
-    }
-    auto positionType = m_isSlipRenderer ? ::WaveformRendererAbstract::Slip
-                                         : ::WaveformRendererAbstract::Play;
-
-    ConstWaveformPointer waveform = pTrack->getWaveform();
-    if (waveform.isNull()) {
-        return false;
+    // New song: start a fresh trail.
+    if (pTrack.get() != m_pShonTrack) {
+        m_pShonTrack = pTrack.get();
+        m_shonHistory.clear();
     }
 
-    const int dataSize = waveform->getDataSize();
-    if (dataSize <= 1) {
-        return false;
+    // Current level of each stem, 0..1.
+    ShonPoint now;
+    now.pos = m_waveformRenderer->getTruePosSample(::WaveformRendererAbstract::Play);
+    for (int stemIdx = 0; stemIdx < mixxx::kMaxSupportedStems; stemIdx++) {
+        float level = 1.f;
+        if (stemIdx < static_cast<int>(m_pStemMute.size()) && m_pStemMute[stemIdx]->toBool()) {
+            level = 0.f;
+        } else if (stemIdx < static_cast<int>(m_pStemGain.size())) {
+            level = static_cast<float>(m_pStemGain[stemIdx]->get());
+        }
+        now.level[stemIdx] = std::clamp(level, 0.f, 1.f);
     }
 
-    const WaveformData* data = waveform->data();
-    if (data == nullptr) {
-        return false;
+    // Record the trail: on every change, and a point now and then while playing.
+    if (!m_shonHistory.empty() && now.pos < m_shonHistory.back().pos - 1.0) {
+        // Jumped back (cue, loop, seek): forget what was after this point.
+        while (!m_shonHistory.empty() && m_shonHistory.back().pos > now.pos) {
+            m_shonHistory.pop_back();
+        }
     }
-    // If this waveform doesn't contain stem data, skip the rendering
-    if (!waveform->hasStem()) {
-        return false;
+    const double samplesPerSecond = trackSamples /
+            std::max(1.0, static_cast<double>(pTrack->getDuration()));
+    bool record = m_shonHistory.empty();
+    if (!record) {
+        const ShonPoint& last = m_shonHistory.back();
+        for (int stemIdx = 0; stemIdx < stemCount; stemIdx++) {
+            if (std::abs(last.level[stemIdx] - now.level[stemIdx]) > 0.002f) {
+                record = true;
+            }
+        }
+        if (now.pos - last.pos > samplesPerSecond * 0.5) {
+            record = true;
+        }
+        // A sudden change (mute) gets a corner, not a long ramp.
+        if (record && now.pos - last.pos > samplesPerSecond * 0.1) {
+            bool jumped = false;
+            for (int stemIdx = 0; stemIdx < stemCount; stemIdx++) {
+                if (std::abs(last.level[stemIdx] - now.level[stemIdx]) > 0.002f) {
+                    jumped = true;
+                }
+            }
+            if (jumped) {
+                ShonPoint corner = last;
+                corner.pos = now.pos - 1.0;
+                m_shonHistory.push_back(corner);
+            }
+        }
+    }
+    if (record) {
+        m_shonHistory.push_back(now);
+        if (m_shonHistory.size() > 50000) {
+            m_shonHistory.erase(m_shonHistory.begin(), m_shonHistory.begin() + 10000);
+        }
     }
 
-    uint selectedStems = m_waveformRenderer->getSelectedStems();
-
-    const float devicePixelRatio = m_waveformRenderer->getDevicePixelRatio();
-    const int length = static_cast<int>(m_waveformRenderer->getLength());
-    const int pixelLength = static_cast<int>(m_waveformRenderer->getLength() * devicePixelRatio);
-    const int stripLength = static_cast<int>(static_cast<float>(pixelLength) / kPixelPerStrip);
-    const float invDevicePixelRatio = kPixelPerStrip / devicePixelRatio;
-    const float halfStripSize = kPixelPerStrip / 2.0f / devicePixelRatio;
-
-    // See waveformrenderersimple.cpp for a detailed explanation of the frame and index calculation
-    const int visualFramesSize = dataSize / 2;
-    const double firstVisualFrame =
-            m_waveformRenderer->getFirstDisplayedPosition(positionType) * visualFramesSize;
-    const double lastVisualFrame =
-            m_waveformRenderer->getLastDisplayedPosition(positionType) * visualFramesSize;
-
-    // Represents the # of visual frames per horizontal pixel.
-    const double visualIncrementPerPixel =
-            (lastVisualFrame - firstVisualFrame) / static_cast<double>(stripLength);
-    if (visualIncrementPerPixel == 0.0) {
-        return false;
-    }
-
-    // Per-band gain from the EQ knobs.
-    float allGain(1.0);
-    getGains(&allGain, nullptr, nullptr, nullptr);
-
+    const float length = static_cast<float>(m_waveformRenderer->getLength());
     const float breadth = static_cast<float>(m_waveformRenderer->getBreadth());
-    const float stemBreadth = m_splitStemTracks ? breadth / 4.0f : 0;
-    const float halfBreadth = (m_splitStemTracks ? stemBreadth : breadth) / 2.0f;
+    const float pad = 6.f;
+    const float lineHalf = 0.8f;
+    const float playX = static_cast<float>(
+            m_waveformRenderer->transformSamplePositionInRendererWorld(now.pos));
+    const auto yFor = [&](float level, int stemIdx) {
+        // Small offset per stem so lines at the same level stay visible.
+        const float top = pad + stemIdx * 2.5f;
+        const float bottom = breadth - pad - (stemCount - 1 - stemIdx) * 2.5f;
+        return bottom - level * (bottom - top);
+    };
 
-    const float heightFactor = allGain * halfBreadth / m_maxValue;
+    // Drums white, bass blue, melody orange, vocals cream.
+    static const float kShonStemColors[4][3] = {
+            {0.92f, 0.92f, 0.94f},
+            {0.18f, 0.42f, 1.00f},
+            {0.95f, 0.64f, 0.23f},
+            {1.00f, 0.88f, 0.70f},
+    };
 
-    // Effective visual frame for x
-    double xVisualFrame = qRound(firstVisualFrame / visualIncrementPerPixel) *
-            visualIncrementPerPixel;
+    struct Segment {
+        float x1, y1, x2, y2;
+        float r, g, b, a;
+    };
+    std::vector<Segment> segments;
+    segments.reserve(1024);
+    for (int stemIdx = 0; stemIdx < stemCount; stemIdx++) {
+        const float* c = kShonStemColors[stemIdx % 4];
+        // Past: the recorded trail, only the visible part.
+        float prevX = 0.f;
+        float prevY = 0.f;
+        bool havePrev = false;
+        for (const ShonPoint& point : m_shonHistory) {
+            const float x = static_cast<float>(
+                    m_waveformRenderer->transformSamplePositionInRendererWorld(point.pos));
+            const float y = yFor(point.level[stemIdx], stemIdx);
+            if (havePrev && !(prevX > length + 2.f || x < -2.f)) {
+                if (std::abs(x - prevX) > 0.3f || std::abs(y - prevY) > 0.3f) {
+                    segments.push_back({prevX, prevY, x, y, c[0], c[1], c[2], 0.9f});
+                }
+            }
+            prevX = x;
+            prevY = y;
+            havePrev = true;
+        }
+        const float yNow = yFor(now.level[stemIdx], stemIdx);
+        if (havePrev && std::abs(playX - prevX) > 0.3f) {
+            segments.push_back({prevX, prevY, playX, yNow, c[0], c[1], c[2], 0.9f});
+        }
+        // Future: flat at the current level, a bit dimmer.
+        segments.push_back({playX, yNow, length, yNow, c[0], c[1], c[2], 0.45f});
+        // Dot at the playhead.
+        segments.push_back({playX - 2.5f, yNow, playX + 2.5f, yNow, c[0], c[1], c[2], 1.0f});
+    }
 
-    const int numVerticesPerLine = 6; // 2 triangles
-
-    const int reserved = numVerticesPerLine *
-            (mixxx::audio::ChannelCount::stem() * stripLength + 1);
-
+    const int reserved = static_cast<int>(segments.size()) * 6;
     geometry().setDrawingMode(Geometry::DrawingMode::Triangles);
     geometry().allocate(reserved);
     markDirtyGeometry();
-
     RGBAVertexUpdater vertexUpdater{geometry().vertexDataAs<Geometry::RGBAColoredPoint2D>()};
-    vertexUpdater.addRectangle({0.f,
-                                       halfBreadth - 0.5f},
-            {static_cast<float>(length),
-                    m_isSlipRenderer ? halfBreadth : halfBreadth + 0.5f},
-            {0.f, 0.f, 0.f, 0.f});
-
-    const double maxSamplingRange = visualIncrementPerPixel / 2.0;
-
-    for (int visualIdx = 0; visualIdx < stripLength; visualIdx++) {
-        int stemLayer = 0;
-        for (int stemIdx : std::as_const(m_stackOrder)) {
-            if (stemIdx >= stemInfo.size()) {
-                continue;
-            }
-            // Stem is drawn twice with different opacity level, this allow to
-            // see the maximum signal by transparency
-            for (int layerIdx = 0; layerIdx < 2; layerIdx++) {
-                QColor stemColor = stemInfo[stemIdx].getColor();
-                float color_r = stemColor.redF(),
-                      color_g = stemColor.greenF(),
-                      color_b = stemColor.blueF(),
-                      color_a = stemColor.alphaF() * (layerIdx ? m_opacity : m_outlineOpacity);
-                const int visualFrameStart = std::lround(xVisualFrame - maxSamplingRange);
-                const int visualFrameStop = std::lround(xVisualFrame + maxSamplingRange);
-
-                const int visualIndexStart = std::max(visualFrameStart * 2, 0);
-                const int visualIndexStop =
-                        std::min(std::max(visualFrameStop, visualFrameStart + 1) * 2, dataSize - 1);
-
-                const float fVisualIdx = static_cast<float>(visualIdx) * invDevicePixelRatio;
-
-                // Find the max values for current eq in the waveform data.
-                // - Max of left and right
-                uchar u8max{};
-                for (int chn = 0; chn < 2; chn++) {
-                    // data is interleaved left / right
-                    for (int i = visualIndexStart + chn; i < visualIndexStop + chn; i += 2) {
-                        const WaveformData& waveformData = data[i];
-
-                        u8max = math_max(u8max, waveformData.stems[stemIdx]);
-                    }
-                }
-
-                // Cast to float
-                float max = static_cast<float>(u8max) * allGain;
-
-                // Apply the gains
-                if (layerIdx) {
-                    if (selectedStems) {
-                        max *= !(selectedStems & 1 << stemIdx)
-                                ? 0.f
-                                : 1.f;
-                    } else if (!m_pStemMute.empty() && m_pStemMute[stemIdx]->toBool()) {
-                        max = 0;
-                    } else {
-                        float volume = m_pStemGain.empty()
-                                ? 1.f
-                                : static_cast<float>(m_pStemGain[stemIdx]->get());
-                        max *= volume;
-                    }
-                }
-
-                // Lines are thin rectangles
-                // shadow
-                float height = heightFactor * max;
-                if (m_splitStemTracks) {
-                    height = std::min(height, halfBreadth);
-                }
-                const int yIndex = m_splitStemTracks ? stemIdx : stemLayer;
-                vertexUpdater.addRectangle(
-                        {fVisualIdx - halfStripSize,
-                                yIndex * stemBreadth + halfBreadth - height},
-                        {fVisualIdx + halfStripSize,
-                                m_isSlipRenderer
-                                        ? yIndex * stemBreadth + halfBreadth
-                                        : yIndex * stemBreadth + halfBreadth + height},
-                        {color_r, color_g, color_b, color_a});
-            }
-            stemLayer++;
+    for (const Segment& seg : segments) {
+        float dx = seg.x2 - seg.x1;
+        float dy = seg.y2 - seg.y1;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len < 0.001f) {
+            dx = 1.f;
+            dy = 0.f;
+        } else {
+            dx /= len;
+            dy /= len;
         }
-
-        xVisualFrame += visualIncrementPerPixel;
+        // Thicker for the playhead dot.
+        const float half = (seg.a >= 1.0f) ? 2.0f : lineHalf;
+        const float nx = -dy * half;
+        const float ny = dx * half;
+        const QVector4D color(seg.r, seg.g, seg.b, seg.a);
+        vertexUpdater.addTriangle(QVector2D(seg.x1 + nx, seg.y1 + ny),
+                QVector2D(seg.x2 + nx, seg.y2 + ny),
+                QVector2D(seg.x1 - nx, seg.y1 - ny),
+                color);
+        vertexUpdater.addTriangle(QVector2D(seg.x1 - nx, seg.y1 - ny),
+                QVector2D(seg.x2 + nx, seg.y2 + ny),
+                QVector2D(seg.x2 - nx, seg.y2 - ny),
+                color);
     }
-
-    DEBUG_ASSERT(reserved == vertexUpdater.index());
-
     markDirtyMaterial();
-
     return true;
 }
 

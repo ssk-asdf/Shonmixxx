@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QHash>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
 #include <QWidget>
+#include <functional>
 #include <memory>
 
 #include "preferences/usersettings.h"
@@ -16,6 +18,7 @@ class QLineEdit;
 class QListWidget;
 class QNetworkAccessManager;
 class QPushButton;
+class QVBoxLayout;
 class QSvgWidget;
 class QTimer;
 class TrackCollectionManager;
@@ -44,6 +47,8 @@ class ShonRequests : public QObject {
         QString location;
         QString matchText;
         bool fits = false;
+        // Guest says they tipped (honor system). The relay pins it to the top.
+        bool tipped = false;
         QString playedNote;
         double bpm = 0.0;
         int key = 0;
@@ -52,6 +57,24 @@ class ShonRequests : public QObject {
     /// Builds the inbox panel shown at the right side of the main window.
     QWidget* createView(QWidget* pParent);
     void onViewShown();
+
+    /// The one ShonRequests, for the track list's "Crowd poll" menu item.
+    static ShonRequests* instance();
+
+    /// Start a crowd poll on the guest page between two songs. Guests vote
+    /// for 30 seconds; you see the result and still decide.
+    void startPoll(const QString& titleA,
+            const QString& artistA,
+            const QString& titleB,
+            const QString& artistB);
+
+    /// For the phone remote.
+    const QList<Request>& requestList() const {
+        return m_requests;
+    }
+    QString relayBaseUrl() const {
+        return relayUrl();
+    }
 
   signals:
     /// Short text for the bottom-right notice in the main window.
@@ -78,6 +101,12 @@ class ShonRequests : public QObject {
     void claimHandle();
     void copyLink();
     void saveQrImage();
+    void postToRelay(const QString& action,
+            QJsonObject body,
+            const std::function<void(const QJsonObject&)>& onReply = nullptr);
+    void uploadProfile();
+    void handlePoll(const QJsonObject& poll);
+    void updatePollView();
 
     UserSettingsPointer m_pConfig;
     Library* m_pLibrary;
@@ -110,5 +139,18 @@ class ShonRequests : public QObject {
     QWidget* m_pSetupBox = nullptr;
     QListWidget* m_pList = nullptr;
     QByteArray m_qrSvg;
+
+    // Tip, follow and booking links.
+    QWidget* m_pLinksBox = nullptr;
+    QHash<QString, QLineEdit*> m_profileEdits;
+
+    // Crowd poll.
+    QJsonObject m_poll;
+    qint64 m_pollEndsAt = 0;
+    QTimer* m_pPollTick = nullptr;
+    QWidget* m_pPollBox = nullptr;
+    QLabel* m_pPollLabel = nullptr;
+    QPushButton* m_pPollEnd = nullptr;
+    QPushButton* m_pPollTop = nullptr;
 };
 

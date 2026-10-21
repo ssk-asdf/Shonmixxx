@@ -1467,6 +1467,10 @@ add_library(
   src/library/library_prefs.cpp
   src/library/library.cpp
   src/library/shonrequests.cpp
+  src/library/shonremote.cpp
+  src/library/shonimport.cpp
+  src/library/shonpractice.cpp
+  lib/qrcodegen/qrcodegen.cpp
   src/library/librarycontrol.cpp
   src/library/libraryfeature.cpp
   src/library/librarytablemodel.cpp
@@ -1840,6 +1844,7 @@ add_library(
   src/widget/wslidercomposed.cpp
   src/widget/wspinny.cpp
   src/widget/wspinnybase.cpp
+  src/widget/shoncurtain.cpp
   src/widget/wsplitter.cpp
   src/widget/wstarrating.cpp
   src/widget/wstatuslight.cpp
@@ -3555,6 +3560,7 @@ else()
   )
 endif()
 target_include_directories(mixxx-lib SYSTEM PUBLIC lib/fidlib)
+target_include_directories(mixxx-lib SYSTEM PUBLIC lib/qrcodegen)
 target_link_libraries(mixxx-lib PRIVATE fidlib)
 
 # Create a list from CMAKE_PREFIX_PATH with an alternate separator

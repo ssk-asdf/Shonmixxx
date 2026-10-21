@@ -228,6 +228,31 @@ void BaseTrackTableModel::setHeaderProperties(ColumnCache::Column column) {
     m_columnHeaders[section].column = column;
     m_columnHeaders[section].header[TrackModel::kHeaderNameRole] = m_columnCache.columnName(column);
     m_columnHeaders[section].header[Qt::DisplayRole] = m_columnCache.columnTitle(column);
+    // Shon: short titles for narrow columns so they aren't cut off.
+    // The full name shows when hovering the header.
+    {
+        QString shortTitle;
+        switch (column) {
+        case ColumnCache::COLUMN_LIBRARYTABLE_PREVIEW:
+            shortTitle = QStringLiteral("\u25B6");
+            break;
+        case ColumnCache::COLUMN_LIBRARYTABLE_YEAR:
+            shortTitle = QStringLiteral("Yr");
+            break;
+        case ColumnCache::COLUMN_LIBRARYTABLE_DURATION:
+            shortTitle = QStringLiteral("Time");
+            break;
+        case ColumnCache::COLUMN_LIBRARYTABLE_TIMESPLAYED:
+            shortTitle = QStringLiteral("Plays");
+            break;
+        default:
+            break;
+        }
+        if (!shortTitle.isEmpty()) {
+            m_columnHeaders[section].header[Qt::ToolTipRole] = m_columnCache.columnTitle(column);
+            m_columnHeaders[section].header[Qt::DisplayRole] = shortTitle;
+        }
+    }
     m_columnHeaders[section].header[TrackModel::kHeaderWidthRole] =
             m_columnCache.columnDefaultWidth(column);
 }
@@ -447,6 +472,8 @@ QAbstractItemDelegate* BaseTrackTableModel::delegateForColumn(
     return new DefaultDelegate(pTableView);
 }
 
+QSet<qlonglong> BaseTrackTableModel::s_shonPlannedIds;
+
 QVariant BaseTrackTableModel::data(
         const QModelIndex& index,
         int role) const {
@@ -455,6 +482,13 @@ QVariant BaseTrackTableModel::data(
     }
 
     if (role == Qt::BackgroundRole) {
+        // Shon: songs this track's cue labels point to (planned transitions).
+        if (!s_shonPlannedIds.isEmpty() &&
+                s_shonPlannedIds.contains(
+                        rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_ID)
+                                .toLongLong())) {
+            return QBrush(QColor(242, 163, 59, 120));
+        }
         const auto rgbColorValue = rawSiblingValue(
                 index,
                 ColumnCache::COLUMN_LIBRARYTABLE_COLOR);
@@ -663,8 +697,12 @@ QVariant BaseTrackTableModel::roleValue(
         case ColumnCache::COLUMN_LIBRARYTABLE_ALBUMARTIST:
         case ColumnCache::COLUMN_LIBRARYTABLE_COMPOSER:
         case ColumnCache::COLUMN_TRACKLOCATIONSTABLE_LOCATION:
-            return role == Qt::DisplayRole ? QVariant(shonStealthMask(rawValue.toString()))
-                                           : QVariant(rawValue.toString());
+            if (role == Qt::ToolTipRole) {
+                return QVariant(rawValue.toString());
+            }
+            return field == ColumnCache::COLUMN_LIBRARYTABLE_TITLE
+                    ? QVariant(shonStealthTitle())
+                    : QVariant(QString());
         default:
             break;
         }

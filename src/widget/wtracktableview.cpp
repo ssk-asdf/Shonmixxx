@@ -1,5 +1,6 @@
 #include "widget/wtracktableview.h"
 
+#include <QApplication>
 #include <QDrag>
 #include <QModelIndex>
 #include <QScrollBar>
@@ -8,6 +9,7 @@
 #include <QUrl>
 
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
 #include "library/dao/trackschema.h"
 #include "library/library.h"
 #include "library/library_prefs.h"
@@ -1248,6 +1250,26 @@ void WTrackTableView::moveSelectedTracks(QKeyEvent* event) {
 }
 
 void WTrackTableView::keyPressEvent(QKeyEvent* event) {
+    // Shon: start typing in the track list and it goes straight into the
+    // search box, so the list filters by what you type.
+    if (state() != QTableView::EditingState &&
+            (event->modifiers() & ~(Qt::ShiftModifier | Qt::KeypadModifier)) ==
+                    Qt::NoModifier &&
+            !event->text().isEmpty() && event->text().at(0).isLetterOrNumber()) {
+        ControlProxy focus(QStringLiteral("[Library]"), QStringLiteral("focused_widget"));
+        if (focus.valid()) {
+            focus.set(static_cast<double>(FocusWidget::Searchbar));
+            QWidget* pTarget = QApplication::focusWidget();
+            if (pTarget && pTarget != this) {
+                QKeyEvent forwarded(QEvent::KeyPress,
+                        event->key(),
+                        event->modifiers(),
+                        event->text());
+                QCoreApplication::sendEvent(pTarget, &forwarded);
+                return;
+            }
+        }
+    }
     switch (event->key()) {
     case kPropertiesShortcutKey: {
         // Return invokes the double-click action.

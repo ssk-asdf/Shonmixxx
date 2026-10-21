@@ -28,6 +28,7 @@
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSqlQuery>
 #include <QSvgWidget>
@@ -59,6 +60,24 @@ const ConfigKey kOpenKey(kGroup, QStringLiteral("requests_open"));
 const ConfigKey kCrateKey(kGroup, QStringLiteral("requests_crate"));
 const ConfigKey kHandleKey(kGroup, QStringLiteral("requests_handle"));
 const ConfigKey kHandleSecretKey(kGroup, QStringLiteral("requests_handle_key"));
+
+// Tip, follow and booking links shown to guests: config item, relay field, hint.
+struct ProfileField {
+    const char* item;
+    const char* field;
+    const char* hint;
+};
+const ProfileField kProfileFields[] = {
+        {"requests_name", "name", "Your DJ name, e.g. Shon"},
+        {"requests_cashapp", "cashapp", "Cash App $cashtag"},
+        {"requests_venmo", "venmo", "Venmo username"},
+        {"requests_instagram", "instagram", "Instagram username"},
+        {"requests_tiktok", "tiktok", "TikTok username"},
+        {"requests_book", "book", "Booking: email or https:// link"},
+};
+constexpr int kPollSeconds = 30;
+
+ShonRequests* s_pShonRequests = nullptr;
 const QString kDefaultCrate = QStringLiteral("Requestable");
 constexpr int kCatalogMs = 60 * 1000;
 const QString kDefaultShopUrl = QStringLiteral("https://www.beatport.com/search?q=%1");
@@ -74,6 +93,8 @@ QLabel#ShonReqSong { font-size: 14px; font-weight: 600; color: #ffffff; }
 QLabel#ShonReqMatch { color: #8a8a92; }
 QLabel#ShonReqMatch[fits="true"] { color: #8fb0ff; }
 QLabel#ShonReqLink { color: #8fb0ff; }
+QLabel#ShonReqTip { color: #00d64f; font-weight: 600; }
+QWidget#ShonReqPoll { background: #1d1d22; border: 1px solid #2f6bff; border-radius: 8px; }
 QWidget#ShonReqQrCard { background: #ffffff; border-radius: 10px; }
 QPushButton { background: #26262b; color: #e6e6e6; border: 1px solid #36363d;
   border-radius: 6px; padding: 5px 12px; }
@@ -84,6 +105,8 @@ QPushButton#ShonReqDismiss { padding: 5px 9px; }
 QLineEdit { background: #222226; color: #e6e6e6; border: 1px solid #33333a;
   border-radius: 6px; padding: 5px 8px; }
 QListWidget { background: #151517; border: none; outline: none; }
+QScrollArea#ShonReqScroll { background: transparent; border: none; }
+QWidget#ShonReqContent { background: #151517; }
 QListWidget::item { border-bottom: 1px solid #2a2a2e; }
 QListWidget::item:selected { background: #1f1f23; }
 QScrollBar:vertical { background: transparent; width: 10px; }
@@ -213,6 +236,10 @@ ShonRequests::ShonRequests(UserSettingsPointer pConfig,
           m_pTrackCollectionManager(pTrackCollectionManager),
           m_pNetwork(new QNetworkAccessManager(this)),
           m_pPollTimer(new QTimer(this)) {
+    s_pShonRequests = this;
+    m_pPollTick = new QTimer(this);
+    m_pPollTick->setInterval(1000);
+    connect(m_pPollTick, &QTimer::timeout, this, &ShonRequests::updatePollView);
     m_code = m_pConfig->getValueString(kCodeKey);
     m_key = m_pConfig->getValueString(kHostKeyKey);
     if (m_code.isEmpty() || m_key.size() < 16) {
@@ -265,7 +292,167 @@ ShonRequests::ShonRequests(UserSettingsPointer pConfig,
     }
 }
 
-ShonRequests::~ShonRequests() = default;
+ShonRequests::~ShonRequests() {
+    if (s_pShonRequests == this) {
+        s_pShonRequests = nullptr;
+    }
+}
+
+ShonRequests* ShonRequests::instance() {
+    return s_pShonRequests;
+}
+
+void ShonRequests::postToRelay(const QString& action,
+        QJsonObject body,
+        const std::function<void(const QJsonObject&)>& onReply) {
+    if (relayUrl().isEmpty()) {
+        return;
+    }
+    QNetworkRequest request(QUrl(relayUrl() + QStringLiteral("/api/p/") + m_code +
+            QLatin1Char('/') + action));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    body.insert(QStringLiteral("key"), m_key);
+    QNetworkReply* pReply =
+            m_pNetwork->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(pReply, &QNetworkReply::finished, this, [pReply, onReply]() {
+        pReply->deleteLater();
+        const QJsonObject reply = QJsonDocument::fromJson(pReply->readAll()).object();
+        if (onReply) {
+            QJsonObject result = reply;
+            if (pReply->error() != QNetworkReply::NoError && !result.contains(QStringLiteral("error"))) {
+                result.insert(QStringLiteral("error"), pReply->errorString());
+            }
+            onReply(result);
+        }
+    });
+}
+
+void ShonRequests::uploadProfile() {
+    QJsonObject profile;
+    for (const ProfileField& f : kProfileFields) {
+        profile.insert(QLatin1String(f.field),
+                m_pConfig->getValueString(ConfigKey(kGroup, QLatin1String(f.item))).trimmed());
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("profile"), profile);
+    postToRelay(QStringLiteral("profile"), body);
+}
+
+void ShonRequests::startPoll(const QString& titleA,
+        const QString& artistA,
+        const QString& titleB,
+        const QString& artistB) {
+    if (!m_open) {
+        emit notice(QStringLiteral("Crowd poll: turn requests on first"));
+        return;
+    }
+    QJsonObject a;
+    a.insert(QStringLiteral("title"), titleA);
+    a.insert(QStringLiteral("artist"), artistA);
+    QJsonObject b;
+    b.insert(QStringLiteral("title"), titleB);
+    b.insert(QStringLiteral("artist"), artistB);
+    QJsonObject body;
+    body.insert(QStringLiteral("a"), a);
+    body.insert(QStringLiteral("b"), b);
+    body.insert(QStringLiteral("seconds"), kPollSeconds);
+    postToRelay(QStringLiteral("poll"), body, [this](const QJsonObject& reply) {
+        if (reply.contains(QStringLiteral("error"))) {
+            emit notice(QStringLiteral("Crowd poll: %1")
+                                .arg(reply.value(QStringLiteral("error")).toString()));
+            return;
+        }
+        handlePoll(reply.value(QStringLiteral("poll")).toObject());
+        emit notice(QStringLiteral("Crowd poll: guests are voting for %1 seconds")
+                            .arg(kPollSeconds));
+        if (m_pShowWindow && m_pShowWindow->get() <= 0.0) {
+            m_pShowWindow->set(1.0);
+            emit panelVisibilityRequested(true);
+            onViewShown();
+        }
+    });
+}
+
+void ShonRequests::handlePoll(const QJsonObject& poll) {
+    const QString oldId = m_poll.value(QStringLiteral("id")).toString();
+    const bool wasOpen = QDateTime::currentMSecsSinceEpoch() < m_pollEndsAt;
+    m_poll = poll;
+    if (poll.isEmpty()) {
+        m_pollEndsAt = 0;
+        m_pPollTick->stop();
+    } else {
+        m_pollEndsAt = QDateTime::currentMSecsSinceEpoch() +
+                static_cast<qint64>(poll.value(QStringLiteral("left")).toDouble());
+        if (!m_pPollTick->isActive()) {
+            m_pPollTick->start();
+        }
+        // Tell the DJ who won when the vote closes.
+        const bool nowOpen = QDateTime::currentMSecsSinceEpoch() < m_pollEndsAt;
+        if (poll.value(QStringLiteral("id")).toString() == oldId && wasOpen && !nowOpen) {
+            const QJsonArray votes = poll.value(QStringLiteral("votes")).toArray();
+            const int va = votes.at(0).toInt();
+            const int vb = votes.at(1).toInt();
+            const auto title = [&poll](const char* side) {
+                return poll.value(QLatin1String(side)).toObject().value(QStringLiteral("title")).toString();
+            };
+            if (va + vb == 0) {
+                emit notice(QStringLiteral("Crowd poll: no votes"));
+            } else if (va == vb) {
+                emit notice(QStringLiteral("Crowd poll: tie, %1 each").arg(va));
+            } else {
+                emit notice(QStringLiteral("Crowd poll: %1 wins, %2 to %3")
+                                    .arg(va > vb ? title("a") : title("b"))
+                                    .arg(std::max(va, vb))
+                                    .arg(std::min(va, vb)));
+            }
+        }
+    }
+    updatePollView();
+}
+
+void ShonRequests::updatePollView() {
+    if (!m_pPollBox) {
+        return;
+    }
+    if (m_poll.isEmpty()) {
+        m_pPollBox->hide();
+        m_pPollTick->stop();
+        if (m_pPollTop) {
+            m_pPollTop->setEnabled(m_open && m_requests.size() >= 2);
+        }
+        return;
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool open = now < m_pollEndsAt;
+    const QJsonArray votes = m_poll.value(QStringLiteral("votes")).toArray();
+    const int va = votes.at(0).toInt();
+    const int vb = votes.at(1).toInt();
+    const int total = va + vb;
+    const auto line = [this, total](const char* side, int count) {
+        const QJsonObject song = m_poll.value(QLatin1String(side)).toObject();
+        QString name = song.value(QStringLiteral("title")).toString();
+        const QString artist = song.value(QStringLiteral("artist")).toString();
+        if (!artist.isEmpty()) {
+            name += QStringLiteral(", ") + artist;
+        }
+        const int pct = total ? qRound(count * 100.0 / total) : 0;
+        return QStringLiteral("<b>%1%</b> &nbsp;%2 <span style='color:#8a8a92'>(%3)</span>")
+                .arg(pct)
+                .arg(name.toHtmlEscaped())
+                .arg(count);
+    };
+    const QString head = open
+            ? QStringLiteral("Crowd poll, %1s left")
+                      .arg(std::max<qint64>(0, (m_pollEndsAt - now + 999) / 1000))
+            : QStringLiteral("Crowd poll closed, %1 votes. Your call.").arg(total);
+    m_pPollLabel->setText(QStringLiteral("<span style='color:#8fb0ff'>%1</span><br>%2<br>%3")
+                                  .arg(head, line("a", va), line("b", vb)));
+    m_pPollEnd->setText(open ? QStringLiteral("End vote") : QStringLiteral("Clear"));
+    m_pPollBox->show();
+    if (m_pPollTop) {
+        m_pPollTop->setEnabled(m_open && m_requests.size() >= 2);
+    }
+}
 
 QString ShonRequests::relayUrl() const {
     QString url = m_pConfig->getValueString(kRelayUrlKey).trimmed();
@@ -417,7 +604,20 @@ QWidget* ShonRequests::createView(QWidget* pParent) {
     pWindow->setStyleSheet(QString::fromUtf8(kWindowStyle));
     m_pWindow = pWindow;
 
-    auto* pLayout = new QVBoxLayout(pWindow);
+    // Everything scrolls together, so the inbox never gets squeezed to nothing
+    // when the links or a poll are showing on a short screen.
+    auto* pOuter = new QVBoxLayout(pWindow);
+    pOuter->setContentsMargins(0, 0, 0, 0);
+    auto* pScroll = new QScrollArea(pWindow);
+    pScroll->setObjectName(QStringLiteral("ShonReqScroll"));
+    pScroll->setWidgetResizable(true);
+    pScroll->setFrameShape(QFrame::NoFrame);
+    pScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* pContent = new QWidget(pScroll);
+    pContent->setObjectName(QStringLiteral("ShonReqContent"));
+    pScroll->setWidget(pContent);
+    pOuter->addWidget(pScroll);
+    auto* pLayout = new QVBoxLayout(pContent);
     pLayout->setContentsMargins(16, 10, 16, 16);
     pLayout->setSpacing(12);
 
@@ -533,6 +733,86 @@ QWidget* ShonRequests::createView(QWidget* pParent) {
     m_pScreenLabel->setWordWrap(true);
     m_pScreenLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     pLayout->addWidget(m_pScreenLabel);
+    // Tip, follow and booking links, folded away once filled in.
+    auto* pLinksToggle = new QPushButton(QStringLiteral("Tip, follow and booking links"), pWindow);
+    pLinksToggle->setToolTip(QStringLiteral("Shown to guests on the request page"));
+    pLayout->addWidget(pLinksToggle);
+    m_pLinksBox = new QWidget(pWindow);
+    auto* pLinksRows = new QVBoxLayout(m_pLinksBox);
+    pLinksRows->setContentsMargins(0, 0, 0, 0);
+    pLinksRows->setSpacing(6);
+    bool anyLink = false;
+    for (const ProfileField& f : kProfileFields) {
+        auto* pEdit = new QLineEdit(
+                m_pConfig->getValueString(ConfigKey(kGroup, QLatin1String(f.item))), m_pLinksBox);
+        pEdit->setPlaceholderText(QLatin1String(f.hint));
+        anyLink = anyLink || !pEdit->text().isEmpty();
+        m_profileEdits.insert(QLatin1String(f.item), pEdit);
+        pLinksRows->addWidget(pEdit);
+    }
+    auto* pSaveLinks = new QPushButton(QStringLiteral("Save links"), m_pLinksBox);
+    connect(pSaveLinks, &QPushButton::clicked, this, [this]() {
+        for (auto it = m_profileEdits.constBegin(); it != m_profileEdits.constEnd(); ++it) {
+            m_pConfig->setValue(ConfigKey(kGroup, it.key()), it.value()->text().trimmed());
+        }
+        uploadProfile();
+        m_pLinksBox->hide();
+        emit notice(QStringLiteral("Requests: links saved"));
+    });
+    pLinksRows->addWidget(pSaveLinks);
+    m_pLinksBox->setVisible(!anyLink);
+    pLayout->addWidget(m_pLinksBox);
+    connect(pLinksToggle, &QPushButton::clicked, this, [this]() {
+        m_pLinksBox->setVisible(!m_pLinksBox->isVisible());
+    });
+
+    // Crowd poll: the top two requests, or two songs from the library
+    // (select two, right-click, Crowd poll).
+    m_pPollTop = new QPushButton(QStringLiteral("Crowd poll: top 2 requests"), pWindow);
+    m_pPollTop->setToolTip(QStringLiteral(
+            "Guests vote between the two most wanted requests for 30 seconds. "
+            "For any two songs: select them in the library, right-click, Crowd poll."));
+    connect(m_pPollTop, &QPushButton::clicked, this, [this]() {
+        if (m_requests.size() < 2) {
+            return;
+        }
+        const auto split = [](const QString& song, QString* pTitle, QString* pArtist) {
+            const int comma = song.lastIndexOf(QStringLiteral(", "));
+            *pTitle = comma > 0 ? song.left(comma) : song;
+            *pArtist = comma > 0 ? song.mid(comma + 2) : QString();
+        };
+        QString ta, aa, tb, ab;
+        split(m_requests.at(0).song, &ta, &aa);
+        split(m_requests.at(1).song, &tb, &ab);
+        startPoll(ta, aa, tb, ab);
+    });
+    pLayout->addWidget(m_pPollTop);
+    m_pPollBox = new QWidget(pWindow);
+    m_pPollBox->setObjectName(QStringLiteral("ShonReqPoll"));
+    m_pPollBox->setAttribute(Qt::WA_StyledBackground, true);
+    auto* pPollLayout = new QHBoxLayout(m_pPollBox);
+    pPollLayout->setContentsMargins(10, 8, 10, 8);
+    m_pPollLabel = new QLabel(m_pPollBox);
+    m_pPollLabel->setTextFormat(Qt::RichText);
+    m_pPollLabel->setWordWrap(true);
+    m_pPollEnd = new QPushButton(QStringLiteral("End vote"), m_pPollBox);
+    connect(m_pPollEnd, &QPushButton::clicked, this, [this]() {
+        if (QDateTime::currentMSecsSinceEpoch() < m_pollEndsAt) {
+            postToRelay(QStringLiteral("poll_end"), QJsonObject(), [this](const QJsonObject& reply) {
+                handlePoll(reply.value(QStringLiteral("poll")).toObject());
+            });
+        } else {
+            // Hide it here; the guest page drops it a minute after the vote.
+            m_poll = QJsonObject();
+            m_pollEndsAt = 0;
+            updatePollView();
+        }
+    });
+    pPollLayout->addWidget(m_pPollLabel, 1);
+    pPollLayout->addWidget(m_pPollEnd, 0, Qt::AlignTop);
+    m_pPollBox->hide();
+    pLayout->addWidget(m_pPollBox);
+
     auto* pHint = new QLabel(
             QStringLiteral("Drag a request onto a deck to load it. Double-click to search "
                            "your library for it."),
@@ -557,10 +837,15 @@ QWidget* ShonRequests::createView(QWidget* pParent) {
             m_pLibrary->searchTracksInCollection(words);
         }
     });
+    m_pList->setMinimumHeight(320);
     pLayout->addWidget(m_pList, 1);
 
     connect(pWindow, &QObject::destroyed, this, [this]() {
         m_pList = nullptr;
+        m_pPollBox = nullptr;
+        m_pPollTop = nullptr;
+        m_pLinksBox = nullptr;
+        m_profileEdits.clear();
     });
 
     updateHeader();
@@ -657,6 +942,7 @@ void ShonRequests::setOpen(bool open) {
                 m_primed = false;
                 m_catalogSignature.clear();
                 uploadCatalog();
+                uploadProfile();
                 claimHandle();
                 m_pPollTimer->start();
                 poll();
@@ -719,11 +1005,14 @@ void ShonRequests::handleRequests(const QByteArray& data) {
         }
         request.votes = item.value(QStringLiteral("votes")).toInt(1);
         request.status = item.value(QStringLiteral("status")).toString();
+        request.tipped = item.value(QStringLiteral("tipped")).toInt() != 0 ||
+                item.value(QStringLiteral("tipped")).toBool();
         for (const QJsonValue& name : item.value(QStringLiteral("names")).toArray()) {
             request.names << name.toString();
         }
         matchInLibrary(&request);
         signature += request.id + request.status + QString::number(request.votes) +
+                (request.tipped ? QStringLiteral("$") : QString()) +
                 request.playedNote + (request.fits ? QStringLiteral("f") : QString()) +
                 QLatin1Char(';');
         if (!m_seenIds.contains(request.id)) {
@@ -737,6 +1026,13 @@ void ShonRequests::handleRequests(const QByteArray& data) {
     }
     m_requests = requests;
     m_primed = true;
+    {
+        // Same poll id: keep it unless the relay dropped it (a minute after it ended).
+        const QJsonObject poll = root.value(QStringLiteral("poll")).toObject();
+        if (!poll.isEmpty() || !m_poll.isEmpty()) {
+            handlePoll(poll);
+        }
+    }
     if (signature != m_lastSignature) {
         m_lastSignature = signature;
         rebuildList();
@@ -757,11 +1053,29 @@ void ShonRequests::matchInLibrary(Request* pRequest) {
         pRequest->key = cached.key;
     } else if (m_pTrackCollectionManager) {
         const QStringList words = searchWords(pRequest->song);
+        // "Title - Artist" or "Title by Artist": also try the title alone,
+        // since artist names in the library are often messy (VEVO, Topic).
+        QStringList titleWords;
+        {
+            const QStringList halves = pRequest->song.split(
+                    QRegularExpression(QStringLiteral("\\s[-\\x{2013}\\x{2014}]\\s|\\sby\\s"),
+                            QRegularExpression::CaseInsensitiveOption));
+            if (halves.size() >= 2) {
+                titleWords = searchWords(halves.first());
+            }
+        }
         QSqlDatabase database = m_pTrackCollectionManager->internalCollection()->database();
-        for (int drop = 0; drop <= 1 && !pRequest->inLibrary && !words.isEmpty(); ++drop) {
-            const QStringList use = drop == 0 ? words : words.mid(0, words.size() - 1);
-            if (use.isEmpty() || (drop == 1 && words.size() < 3)) {
-                break;
+        for (int drop = 0; drop <= 2 && !pRequest->inLibrary && !words.isEmpty(); ++drop) {
+            QStringList use;
+            if (drop == 0) {
+                use = words;
+            } else if (drop == 1) {
+                use = words.size() >= 3 ? words.mid(0, words.size() - 1) : QStringList();
+            } else {
+                use = titleWords;
+            }
+            if (use.isEmpty()) {
+                continue;
             }
             QStringList conditions;
             for (int i = 0; i < use.size(); ++i) {
@@ -812,9 +1126,8 @@ void ShonRequests::matchInLibrary(Request* pRequest) {
                 m_matchCache.insert(pRequest->id, *pRequest);
             }
         }
-        if (!pRequest->inLibrary) {
-            m_matchCache.insert(pRequest->id, *pRequest);
-        }
+        // Misses are not cached: a song added later (ADD, Inbox, a drag in)
+        // shows up as "in library" on the next check.
     }
 
     // Does it mix with what is playing right now?
@@ -871,6 +1184,13 @@ void ShonRequests::rebuildList() {
         auto* pSong = new QLabel(request.song, pRow);
         pSong->setObjectName(QStringLiteral("ShonReqSong"));
         pSong->setWordWrap(true);
+        if (request.tipped) {
+            auto* pTip = new QLabel(QStringLiteral("$ TIPPED"), pRow);
+            pTip->setObjectName(QStringLiteral("ShonReqTip"));
+            pTip->setToolTip(QStringLiteral(
+                    "The guest says they tipped. Check your Cash App or Venmo."));
+            pText->addWidget(pTip);
+        }
         QStringList who;
         if (!request.names.isEmpty()) {
             who << request.names.join(QStringLiteral(", "));

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <g fill="#ff6600">
+  <g fill="#b4b4bc">
     <path d="M5 5h9v9H5z M8 8v3h3V8z" fill-rule="evenodd"/>
     <path d="M18 5h9v9h-9z M21 8v3h3V8z" fill-rule="evenodd"/>
     <path d="M5 18h9v9H5z M8 21v3h3v-3z" fill-rule="evenodd"/>

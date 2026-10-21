@@ -10,6 +10,10 @@
 #include <QThread>
 #include <QtDebug>
 #include <cstddef>
+#include <cstring>
+#ifdef __WINDOWS__
+#include <pa_win_wasapi.h>
+#endif
 
 #include "control/controlobject.h"
 #include "sounddevicenetwork.h"
@@ -269,6 +273,20 @@ SoundDeviceStatus SoundDevicePortAudio::open(bool isClkRefDevice, int syncBuffer
 #endif
         m_outputParams.hostApiSpecificStreamInfo = nullptr;
 #ifdef PA_USE_OBOE
+    }
+#endif
+#ifdef __WINDOWS__
+    // Shon: let Windows convert the sample rate and format in WASAPI shared
+    // mode. Bluetooth speakers (LE Audio especially) often run at a rate
+    // like 32 kHz that Mixxx doesn't offer, and refuse to open otherwise.
+    PaWasapiStreamInfo wasapiStreamInfo;
+    if (m_deviceTypeId == paWASAPI) {
+        std::memset(&wasapiStreamInfo, 0, sizeof(wasapiStreamInfo));
+        wasapiStreamInfo.size = sizeof(PaWasapiStreamInfo);
+        wasapiStreamInfo.hostApiType = paWASAPI;
+        wasapiStreamInfo.version = 1;
+        wasapiStreamInfo.flags = paWinWasapiAutoConvert;
+        m_outputParams.hostApiSpecificStreamInfo = &wasapiStreamInfo;
     }
 #endif
 

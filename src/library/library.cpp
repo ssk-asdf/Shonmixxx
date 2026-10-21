@@ -1,16 +1,22 @@
 #include "library/library.h"
 #include "library/shonrequests.h"
+#include "library/shonremote.h"
+#include "library/shonimport.h"
+#include "library/shonpractice.h"
 
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QDir>
 #include <QMessageBox>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSqlQuery>
 #include <algorithm>
 #include <cmath>
 
+#include "library/basetracktablemodel.h"
+#include "track/cue.h"
 #include "control/controlobject.h"
 #include "controllers/keyboard/keyboardeventfilter.h"
 #include "library/analysis/analysisfeature.h"
@@ -38,7 +44,11 @@
 #include "library/trackset/crate/cratefeature.h"
 #include "library/trackset/playlistfeature.h"
 #include "library/trackset/setlogfeature.h"
+#include "library/dao/analysisdao.h"
+#include "library/dao/trackdao.h"
 #include "library/dao/trackschema.h"
+#include "track/beats.h"
+#include "waveform/waveform.h"
 #include "library/traktor/traktorfeature.h"
 #include "mixer/playerinfo.h"
 #include "control/controlproxy.h"
@@ -132,11 +142,62 @@ Library::Library(
         }
     };
     connect(m_pShonStealth.get(), &ControlObject::valueChanged, this, shonRepaintTables);
+
+    // Shon: songs swapped to stem files get their cues and beatgrid lined
+    // up with the new file after its waveform is made the first time.
+    connect(&m_pTrackCollectionManager->internalCollection()->getTrackDAO(),
+            &TrackDAO::waveformSummaryUpdated,
+            this,
+            &Library::shonAlignSwappedStem,
+            Qt::QueuedConnection);
+
+    // Shon: stem lines on the waveform. On by default, remembered.
+    m_pShonStemLines = std::make_unique<ControlPushButton>(
+            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("stem_lines")), true, 1.0);
+    static_cast<ControlPushButton*>(m_pShonStemLines.get())
+            ->setButtonMode(mixxx::control::ButtonMode::Toggle);
+
+    // Shon: [ChannelN],shon_unmute_stems turns every stem of that deck back on.
+    for (int deck = 1; deck <= 4; ++deck) {
+        const QString group = QStringLiteral("[Channel%1]").arg(deck);
+        auto pButton = std::make_unique<ControlPushButton>(
+                ConfigKey(group, QStringLiteral("shon_unmute_stems")));
+        connect(pButton.get(), &ControlObject::valueChanged, this, [this, deck](double value) {
+            if (value <= 0.0) {
+                return;
+            }
+            for (int stem = 1; stem <= 4; ++stem) {
+                ControlProxy mute(QStringLiteral("[Channel%1_Stem%2]").arg(deck).arg(stem),
+                        QStringLiteral("mute"));
+                if (mute.valid()) {
+                    mute.set(0.0);
+                }
+            }
+        });
+        m_shonUnmuteStems.push_back(std::move(pButton));
+    }
     connect(m_pShonStealthPeek.get(), &ControlObject::valueChanged, this, shonRepaintTables);
 
     // Shon: guest song requests through a QR code, shown as "Requests".
     m_pShonRequests = make_parented<ShonRequests>(
             m_pConfig, this, m_pTrackCollectionManager.data(), this);
+
+    // Shon: phone remote over Wi-Fi, with the relay as a backup.
+    m_pShonRemote = make_parented<ShonRemote>(m_pConfig,
+            this,
+            m_pTrackCollectionManager.data(),
+            m_pShonRequests.get(),
+            this);
+    connect(m_pShonRemote.get(), &ShonRemote::notice, this, &Library::shonNotice);
+
+    // Shon: add songs from a link or the Inbox folder, with stems.
+    m_pShonImport = make_parented<ShonImport>(
+            m_pConfig, this, m_pTrackCollectionManager.data(), this);
+    connect(m_pShonImport.get(), &ShonImport::notice, this, &Library::shonNotice);
+
+    // Shon: practice mode scores each transition.
+    m_pShonPractice = make_parented<ShonPractice>(m_pConfig, this);
+    connect(m_pShonPractice.get(), &ShonPractice::notice, this, &Library::shonNotice);
 
     m_pPlaylistFeature = make_parented<PlaylistFeature>(this, UserSettingsPointer(m_pConfig));
     addFeature(m_pPlaylistFeature);
@@ -321,6 +382,11 @@ Library::Library(
             &PlayerInfo::currentPlayingTrackChanged,
             this,
             &Library::slotShonPlayingTrackChanged);
+    // Loading the next song: point at its "from <playing song>" cue.
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::trackChanged,
+            this,
+            &Library::slotShonDeckTrackChanged);
 
     m_pShonAwayMode = std::make_unique<ControlPushButton>(
             ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("shon_away_mode")));
@@ -355,7 +421,57 @@ void Library::slotShonToggleMatches(double value) {
     }
 }
 
+void Library::slotShonDeckTrackChanged(
+        const QString& group, TrackPointer pNewTrack, TrackPointer pOldTrack) {
+    Q_UNUSED(pOldTrack);
+    // A cue labeled "from Blow" on the song you just loaded = where to bring
+    // it in when Blow is playing. Show it so you don't have to remember.
+    TrackPointer pPlaying = PlayerInfo::instance().getCurrentPlayingTrack();
+    if (!pNewTrack || !pPlaying || pPlaying == pNewTrack) {
+        return;
+    }
+    const auto wordsOf = [](QString text) {
+        text = text.toLower();
+        text.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")), QStringLiteral(" "));
+        return text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    };
+    const QStringList playingWords =
+            wordsOf(pPlaying->getTitle() + QLatin1Char(' ') + pPlaying->getArtist());
+    const QList<CuePointer> cues = pNewTrack->getCuePoints();
+    for (const CuePointer& pCue : cues) {
+        if (!pCue || pCue->getHotCue() < 0) {
+            continue;
+        }
+        QString label = pCue->getLabel().trimmed().toLower();
+        if (label.startsWith(QLatin1Char('<'))) {
+            label = label.mid(1);
+        } else if (label.startsWith(QLatin1String("from "))) {
+            label = label.mid(5);
+        } else {
+            continue;
+        }
+        const QStringList want = wordsOf(label);
+        if (want.isEmpty()) {
+            continue;
+        }
+        const bool matches = std::all_of(want.cbegin(), want.cend(), [&](const QString& word) {
+            return playingWords.contains(word);
+        });
+        if (matches) {
+            emit shonNotice(QStringLiteral("%1: come in at cue %2 (from %3)")
+                                    .arg(pNewTrack->getTitle())
+                                    .arg(pCue->getHotCue() + 1)
+                                    .arg(pPlaying->getTitle()));
+            Q_UNUSED(group);
+            return;
+        }
+    }
+}
+
 void Library::slotShonPlayingTrackChanged(TrackPointer pTrack) {
+    if (pTrack) {
+        shonUpdatePlannedTransitions(pTrack);
+    }
     // Only follow the playing track while the filter is on, and keep the
     // last results when nothing is playing.
     if (m_shonMatchesActive && pTrack) {
@@ -563,6 +679,266 @@ void Library::shonAwayAddTracks(int count) {
     }
 }
 
+namespace {
+
+// Mono "all" band of a waveform, mean removed, first maxFrames visual frames.
+std::vector<float> shonWaveformMono(const Waveform& waveform, int maxFrames) {
+    const int frames = std::min(waveform.getDataSize() / 2, maxFrames);
+    std::vector<float> out(std::max(frames, 0));
+    if (frames <= 0) {
+        return out;
+    }
+    const WaveformData* pData = waveform.data();
+    double sum = 0;
+    for (int i = 0; i < frames; ++i) {
+        out[i] = 0.5f * (pData[2 * i].filtered.all + pData[2 * i + 1].filtered.all);
+        sum += out[i];
+    }
+    const float mean = static_cast<float>(sum / frames);
+    for (float& v : out) {
+        v -= mean;
+    }
+    return out;
+}
+
+double shonCorrelate(const std::vector<float>& a, const std::vector<float>& b, int lag) {
+    // b[i + lag] against a[i]
+    double sum = 0;
+    const int n = static_cast<int>(std::min(a.size(), b.size()));
+    for (int i = std::max(0, -lag); i < n && i + lag < n; ++i) {
+        sum += static_cast<double>(a[i]) * b[i + lag];
+    }
+    return sum;
+}
+
+} // namespace
+
+void Library::shonAlignSwappedStem(TrackId trackId) {
+    TrackCollection* pCollection = m_pTrackCollectionManager->internalCollection();
+    QSqlQuery query(pCollection->database());
+    query.prepare(QStringLiteral(
+            "SELECT old_id, offset_ms FROM shon_stem_swaps WHERE new_id=:id AND aligned=0"));
+    query.bindValue(QStringLiteral(":id"), trackId.toVariant());
+    if (!query.exec() || !query.next()) {
+        return; // not a swapped song, or already lined up
+    }
+    const TrackId oldId(query.value(0));
+    // Cues may already carry an earlier shift (stem files fixed later on).
+    const double appliedMillis = query.value(1).toDouble();
+
+    const auto markAligned = [&](double millis) {
+        QSqlQuery update(pCollection->database());
+        update.prepare(QStringLiteral(
+                "UPDATE shon_stem_swaps SET aligned=1, offset_ms=:ms WHERE new_id=:id"));
+        update.bindValue(QStringLiteral(":ms"), millis);
+        update.bindValue(QStringLiteral(":id"), trackId.toVariant());
+        update.exec();
+    };
+
+    TrackPointer pTrack = m_pTrackCollectionManager->getTrackById(trackId);
+    if (!pTrack) {
+        return;
+    }
+    ConstWaveformPointer pNew = pTrack->getWaveform();
+    if (!pNew || pNew->getVisualSampleRate() <= 0 ||
+            pNew->getCompletion() < pNew->getDataSize()) {
+        return; // waveform not finished, try again next time
+    }
+    const auto analyses = pCollection->getAnalysisDAO().getAnalysesForTrackByType(
+            oldId, AnalysisDao::TYPE_WAVEFORM);
+    if (analyses.isEmpty()) {
+        markAligned(appliedMillis); // nothing to compare against
+        return;
+    }
+    const Waveform oldWaveform(analyses.first().data);
+    const double rate = pNew->getVisualSampleRate();
+    if (std::abs(oldWaveform.getVisualSampleRate() - rate) > 0.5) {
+        markAligned(appliedMillis);
+        return;
+    }
+
+    // Compare the first minute, within 150 ms either way.
+    const int frames = static_cast<int>(rate * 60);
+    const std::vector<float> a = shonWaveformMono(oldWaveform, frames);
+    const std::vector<float> b = shonWaveformMono(*pNew, frames);
+    if (a.size() < 100 || b.size() < 100) {
+        markAligned(appliedMillis);
+        return;
+    }
+    const int maxLag = static_cast<int>(rate * 0.15);
+    int bestLag = 0;
+    double best = -1e300;
+    for (int lag = -maxLag; lag <= maxLag; ++lag) {
+        const double c = shonCorrelate(a, b, lag);
+        if (c > best) {
+            best = c;
+            bestLag = lag;
+        }
+    }
+    // Refine between visual frames.
+    double lag = bestLag;
+    if (bestLag > -maxLag && bestLag < maxLag) {
+        const double y0 = shonCorrelate(a, b, bestLag - 1);
+        const double y2 = shonCorrelate(a, b, bestLag + 1);
+        const double denom = y0 - 2 * best + y2;
+        if (denom != 0) {
+            lag += 0.5 * (y0 - y2) / denom;
+        }
+    }
+    if (bestLag <= -maxLag || bestLag >= maxLag) {
+        // No clear match. Leave the cues alone rather than guess.
+        qWarning() << "Shon stem swap:" << trackId << "no clear offset, cues left as they are";
+        markAligned(appliedMillis);
+        return;
+    }
+    const double measured = lag / rate * 1000.0;
+    const double millis = measured - appliedMillis;
+    qInfo() << "Shon stem swap:" << trackId << "offset" << measured << "ms, shifting" << millis;
+
+    if (std::abs(millis) >= 1.0) {
+        pTrack->shiftCuePositionsMillis(millis);
+        const auto sampleRate = pTrack->getSampleRate();
+        if (const mixxx::BeatsPointer pBeats = pTrack->getBeats(); pBeats && sampleRate.isValid()) {
+            const auto frameOffset = static_cast<mixxx::audio::FrameDiff_t>(
+                    millis * sampleRate.value() / 1000.0);
+            if (const auto translated = pBeats->tryTranslate(frameOffset)) {
+                const bool wasLocked = pTrack->isBpmLocked();
+                if (wasLocked) {
+                    pTrack->setBpmLocked(false);
+                }
+                pTrack->trySetBeats(*translated);
+                if (wasLocked) {
+                    pTrack->setBpmLocked(true);
+                }
+            }
+        }
+    }
+    markAligned(measured);
+}
+
+void Library::shonUpdatePlannedTransitions(TrackPointer pTrack) {
+    // A hot cue labeled with another song's name ("Low", "-> Low Flo Rida")
+    // means "start the transition into that song here". Find those songs.
+    static const QSet<QString> kSkip = {QStringLiteral("in"),
+            QStringLiteral("out"),
+            QStringLiteral("drop"),
+            QStringLiteral("break"),
+            QStringLiteral("intro"),
+            QStringLiteral("outro"),
+            QStringLiteral("verse"),
+            QStringLiteral("chorus"),
+            QStringLiteral("hook"),
+            QStringLiteral("build"),
+            QStringLiteral("buildup"),
+            QStringLiteral("bridge"),
+            QStringLiteral("vocal"),
+            QStringLiteral("vocals"),
+            QStringLiteral("start"),
+            QStringLiteral("end"),
+            QStringLiteral("mix"),
+            QStringLiteral("loop")};
+    QSet<qlonglong> plannedIds;
+    QStringList searches;
+    QStringList noticeParts;
+    if (m_pTrackCollectionManager) {
+        const QSqlDatabase database =
+                m_pTrackCollectionManager->internalCollection()->database();
+        const qlonglong playingId = pTrack->getId().toVariant().toLongLong();
+        const QList<CuePointer> cues = pTrack->getCuePoints();
+        for (const CuePointer& pCue : cues) {
+            if (!pCue || pCue->getHotCue() < 0) {
+                continue;
+            }
+            QString label = pCue->getLabel().toLower();
+            // "from Blow" or "< Blow" marks where this song comes in.
+            // That points back, so it is not a planned transition.
+            if (label.trimmed().startsWith(QLatin1Char('<')) ||
+                    label.trimmed().startsWith(QLatin1String("from "))) {
+                continue;
+            }
+            label.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")),
+                    QStringLiteral(" "));
+            label = label.simplified();
+            if (label.size() < 2 || kSkip.contains(label)) {
+                continue;
+            }
+            QStringList words;
+            const QStringList parts = label.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (const QString& word : parts) {
+                if (word.size() >= 2 && word != QStringLiteral("to") &&
+                        word != QStringLiteral("into") && word != QStringLiteral("feat") &&
+                        word != QStringLiteral("ft")) {
+                    words << word;
+                }
+            }
+            // "Drop 2", "Intro" and other section names are not songs.
+            const bool onlySectionWords = std::all_of(words.cbegin(),
+                    words.cend(),
+                    [](const QString& word) {
+                        return kSkip.contains(word);
+                    });
+            if (words.isEmpty() || onlySectionWords) {
+                continue;
+            }
+            // Exact title first, then every word in title + artist.
+            QSqlQuery query(database);
+            QStringList conditions;
+            for (int i = 0; i < words.size(); ++i) {
+                conditions << QStringLiteral(
+                        "lower(coalesce(title, '') || ' ' || coalesce(artist, '')) LIKE ?");
+            }
+            query.prepare(QStringLiteral(
+                    "SELECT id, title, artist FROM library WHERE mixxx_deleted = 0 AND id != ? AND ") +
+                    conditions.join(QStringLiteral(" AND ")) +
+                    QStringLiteral(" ORDER BY (lower(title) = ?) DESC, timesplayed DESC LIMIT 25"));
+            query.addBindValue(playingId);
+            for (const QString& word : std::as_const(words)) {
+                const QString likeWord = QStringLiteral("%") + word + QStringLiteral("%");
+                query.addBindValue(likeWord);
+            }
+            query.addBindValue(words.join(QLatin1Char(' ')));
+            if (!query.exec()) {
+                continue;
+            }
+            // Whole words only, so "Low" finds "Low" and never "Blow".
+            while (query.next()) {
+                QString haystack = (query.value(1).toString() + QLatin1Char(' ') +
+                        query.value(2).toString())
+                                           .toLower();
+                haystack.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")),
+                        QStringLiteral(" "));
+                const QStringList songWords = haystack.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+                const bool allWords = std::all_of(words.cbegin(),
+                        words.cend(),
+                        [&songWords](const QString& word) {
+                            return songWords.contains(word);
+                        });
+                if (!allWords) {
+                    continue;
+                }
+                plannedIds.insert(query.value(0).toLongLong());
+                searches << words.join(QLatin1Char(' '));
+                noticeParts << QStringLiteral("%1 at cue %2")
+                                       .arg(query.value(1).toString())
+                                       .arg(pCue->getHotCue() + 1);
+                break;
+            }
+        }
+    }
+    m_shonPlannedSearch = searches;
+    BaseTrackTableModel::shonSetPlannedTrackIds(plannedIds);
+    const auto widgets = QApplication::allWidgets();
+    for (QWidget* pWidget : widgets) {
+        if (auto* pView = qobject_cast<QAbstractItemView*>(pWidget)) {
+            pView->viewport()->update();
+        }
+    }
+    if (!noticeParts.isEmpty()) {
+        emit shonNotice(QStringLiteral("Planned: %1").arg(
+                noticeParts.mid(0, 3).join(QStringLiteral(", "))));
+    }
+}
+
 void Library::shonApplyMatchesFilter(TrackPointer pTrack) {
     if (!pTrack || pTrack->getBpm() <= 0.0) {
         return;
@@ -574,6 +950,10 @@ void Library::shonApplyMatchesFilter(TrackPointer pTrack) {
     if (key != mixxx::track::io::key::INVALID) {
         query += QStringLiteral(" ~key:%1").arg(
                 KeyUtils::keyToString(key, KeyUtils::KeyNotation::OpenKey));
+    }
+    // Planned transitions always show up, even if BPM or key don't fit.
+    for (const QString& planned : std::as_const(m_shonPlannedSearch)) {
+        query += QStringLiteral(" | ") + planned;
     }
     searchTracksInCollection(query);
 }

@@ -179,6 +179,9 @@ class MixxxMainWindow : public QMainWindow {
     QStringList m_shonOutputNames;
     QLabel* m_pShonNotice = nullptr;
     QTimer* m_pShonNoticeTimer = nullptr;
+    QString m_shonControllerSignature = QStringLiteral("<start>");
+    std::unique_ptr<ControlObject> m_pShonFullscreen;
+    std::unique_ptr<ControlObject> m_pShonQuit;
     QWidget* m_pShonRequestsPanel = nullptr;
     QPointer<QWidget> m_pShonRequestsSlot;
     QObject* m_pShonSlotWatcher = nullptr;

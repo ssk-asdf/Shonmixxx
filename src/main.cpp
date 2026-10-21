@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QFont>
 #include <QDir>
 #include <QPalette>
 #include <QPixmapCache>
@@ -307,6 +308,13 @@ int main(int argc, char * argv[]) {
     adjustScaleFactor(&args);
 
     MixxxApplication app(argc, argv);
+    {
+        // Shon: at 125%/150% Windows scaling Qt turns font hinting off, which
+        // makes button labels look soft. Hint fully so text snaps to pixels.
+        QFont font = QApplication::font();
+        font.setHintingPreference(QFont::PreferFullHinting);
+        QApplication::setFont(font);
+    }
 
 #if defined(Q_OS_WIN)
     // The Mixxx style is based on Qt's WindowsVista style

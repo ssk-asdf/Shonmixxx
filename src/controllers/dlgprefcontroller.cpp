@@ -220,11 +220,14 @@ DlgPrefController::DlgPrefController(
         m_ui.labelHidUsage->setVisible(true);
         m_ui.labelHidUsageValue->setVisible(true);
 
-        // Create HID report tabs
-        m_hidReportTabsManager =
-                std::make_unique<ControllerHidReportTabsManager>(
-                        m_ui.controllerTabs, hidController);
-        m_hidReportTabsManager->createReportTypeTabs();
+        // Create HID report tabs. Shon: developer mode only. Building them
+        // reads every HID device on the laptop and froze startup for ~7 s.
+        if (CmdlineArgs::Instance().getDeveloper()) {
+            m_hidReportTabsManager =
+                    std::make_unique<ControllerHidReportTabsManager>(
+                            m_ui.controllerTabs, hidController);
+            m_hidReportTabsManager->createReportTypeTabs();
+        }
     } else
 #endif
     {

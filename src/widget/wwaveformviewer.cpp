@@ -2,11 +2,16 @@
 
 #include <QDragEnterEvent>
 #include <QEvent>
+#include <QMenu>
 
 #include "control/controlproxy.h"
 #include "moc_wwaveformviewer.cpp"
 #include "util/dnd.h"
 #include "util/math.h"
+#include "util/defs.h"
+#include "track/beats.h"
+#include "track/cue.h"
+#include "track/track.h"
 #include "waveform/waveformwidgetfactory.h"
 #include "waveform/widgets/waveformwidgetabstract.h"
 #include "widget/wcuemenupopup.h"
@@ -109,6 +114,13 @@ void WWaveformViewer::mousePressEvent(QMouseEvent* event) {
                 m_pCueMenuPopup->popup(event->globalPos());
 #endif
             }
+        } else if (currentTrack && (!isPlaying() ||
+                                           (event->modifiers() & Qt::ControlModifier))) {
+            // Shon: right-click an empty spot (Ctrl+right-click while playing)
+            // to drop a transition cue in slots 9 and up, so pads 1-8 stay
+            // free for performing.
+            shonAddTransitionCue(currentTrack, event);
+            return;
         } else {
             // If we are scratching then disable and reset because the two shouldn't
             // be used at once.
@@ -124,6 +136,64 @@ void WWaveformViewer::mousePressEvent(QMouseEvent* event) {
     // Set the cursor to a hand while the mouse is down (when cue menu is not open).
     if (!m_pCueMenuPopup->isVisible()) {
         setCursor(Qt::ClosedHandCursor);
+    }
+}
+
+void WWaveformViewer::shonAddTransitionCue(TrackPointer pTrack, QMouseEvent* event) {
+    const int eventPos = m_waveformWidget->getOrientation() == Qt::Horizontal
+            ? event->pos().x()
+            : event->pos().y();
+    const double samples = m_waveformWidget->getFirstDisplayedPosition() *
+                    m_waveformWidget->getTrackSamples() +
+            eventPos * 2.0 * m_waveformWidget->getAudioSamplePerPixel();
+    auto position = mixxx::audio::FramePos::fromEngineSamplePosMaybeInvalid(samples);
+    if (!position.isValid()) {
+        return;
+    }
+    // Snap to the nearest beat so the transition lands on time.
+    if (const mixxx::BeatsPointer pBeats = pTrack->getBeats()) {
+        const auto beat = pBeats->findClosestBeat(position);
+        if (beat.isValid()) {
+            position = beat;
+        }
+    }
+    // Next free slot from 9 up.
+    int freeSlot = -1;
+    const QList<CuePointer> cues = pTrack->getCuePoints();
+    for (int slot = 8; slot < kMaxNumberOfHotcues && freeSlot < 0; ++slot) {
+        bool used = false;
+        for (const CuePointer& pCue : cues) {
+            if (pCue && pCue->getHotCue() == slot) {
+                used = true;
+                break;
+            }
+        }
+        if (!used) {
+            freeSlot = slot;
+        }
+    }
+    QMenu menu(this);
+    QAction* pAdd = menu.addAction(freeSlot >= 0
+                    ? tr("Add transition cue here")
+                    : tr("All transition slots are full"));
+    pAdd->setEnabled(freeSlot >= 0);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint globalPos = event->globalPosition().toPoint();
+#else
+    const QPoint globalPos = event->globalPos();
+#endif
+    if (menu.exec(globalPos) != pAdd || freeSlot < 0) {
+        return;
+    }
+    CuePointer pCue = pTrack->createAndAddCue(mixxx::CueType::HotCue,
+            freeSlot,
+            position,
+            mixxx::audio::kInvalidFramePos,
+            mixxx::RgbColor(0xA855F7)); // purple: transitions
+    if (pCue) {
+        // Open the cue box right away to type "Ghostbusters" or "from Blow".
+        m_pCueMenuPopup->setTrackCueGroup(pTrack, pCue, m_group);
+        m_pCueMenuPopup->popup(globalPos);
     }
 }
 

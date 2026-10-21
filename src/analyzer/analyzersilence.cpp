@@ -36,13 +36,13 @@ constexpr double kShonLowpassHz = 150.0;
 constexpr int kShonBeatsPerSection = 32;
 // Hot cue slots, matching the IN 1 / drops 2 to 4 / OUT 8 layout.
 constexpr int kShonInSlot = 0;
-constexpr int kShonFirstDropSlot = 1;
+[[maybe_unused]] constexpr int kShonFirstDropSlot = 1;
 constexpr int kShonMaxDrops = 2;
-constexpr int kShonBreakSlot = 3;
+[[maybe_unused]] constexpr int kShonBreakSlot = 3;
 constexpr int kShonOutSlot = 7;
 constexpr mixxx::RgbColor::code_t kShonBlue = 0x2F6BFF;
 constexpr mixxx::RgbColor::code_t kShonRed = 0xFF3B30;
-constexpr mixxx::RgbColor::code_t kShonGreen = 0x2ECC40;
+[[maybe_unused]] constexpr mixxx::RgbColor::code_t kShonGreen = 0x2ECC40;
 
 bool hasAnyHotCue(const TrackPointer& pTrack) {
     const QList<CuePointer> cues = pTrack->getCuePoints();
@@ -342,17 +342,10 @@ void AnalyzerSilence::shonPlaceAutoCues(Track* pTrack) const {
         return beatFrames[section * kShonBeatsPerSection];
     };
 
+    // Shon: only IN and OUT are placed. Pads 2 to 7 stay free for your own
+    // cues; drops and breaks still help place OUT after the last drop.
     addCue(kShonInSlot, beatFrames.front(), QStringLiteral("IN"), kShonBlue);
-    for (int i = 0; i < static_cast<int>(rises.size()); ++i) {
-        addCue(kShonFirstDropSlot + i,
-                sectionStart(rises[i].section),
-                QStringLiteral("DROP"),
-                kShonGreen);
-    }
-    if (!falls.empty()) {
-        addCue(kShonBreakSlot, sectionStart(falls.front().section),
-                QStringLiteral("BREAK"), kShonGreen);
-    }
+    (void)falls;
     // OUT: start of the last 16 bars, after the last drop.
     const int lastDrop = rises.empty() ? 0 : rises.back().section;
     const int outSection = std::max(sectionCount - 2, lastDrop + 1);

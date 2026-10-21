@@ -1,3 +1,10 @@
-<svg width="96" height="96" enable-background="new" version="1.1" xmlns="http://www.w3.org/2000/svg">
-  <rect y="-2.057e-7" width="96" height="96" color="#000000" enable-background="accumulate" fill="#020202"/>
+<svg width="96" height="96" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <rect width="96" height="96" fill="#151517"/>
+  <circle cx="48" cy="48" r="47" fill="#0c0c0d"/>
+  <g fill="none" stroke="#1a1a1c" stroke-width="0.6">
+    <circle cx="48" cy="48" r="43"/>
+    <circle cx="48" cy="48" r="38"/>
+    <circle cx="48" cy="48" r="33"/>
+    <circle cx="48" cy="48" r="28"/>
+  </g>
 </svg>
