@@ -94,6 +94,8 @@ QLabel#ShonReqMatch { color: #8a8a92; }
 QLabel#ShonReqMatch[fits="true"] { color: #8fb0ff; }
 QLabel#ShonReqLink { color: #8fb0ff; }
 QLabel#ShonReqTip { color: #00d64f; font-weight: 600; }
+QLabel#ShonReqTipPending { color: #ffc400; font-weight: 600; }
+QPushButton#ShonReqTipOk { background: #00d64f; border-color: #00d64f; color: #000000; }
 QWidget#ShonReqPoll { background: #1d1d22; border: 1px solid #2f6bff; border-radius: 8px; }
 QWidget#ShonReqQrCard { background: #ffffff; border-radius: 10px; }
 QPushButton { background: #26262b; color: #e6e6e6; border: 1px solid #36363d;
@@ -1005,16 +1007,23 @@ void ShonRequests::handleRequests(const QByteArray& data) {
         }
         request.votes = item.value(QStringLiteral("votes")).toInt(1);
         request.status = item.value(QStringLiteral("status")).toString();
-        request.tipped = item.value(QStringLiteral("tipped")).toInt() != 0 ||
-                item.value(QStringLiteral("tipped")).toBool();
+        request.tipState = item.value(QStringLiteral("tipped")).toInt();
+        request.tipped = request.tipState == 2;
+        request.tipCode = item.value(QStringLiteral("tipCode")).toString();
         for (const QJsonValue& name : item.value(QStringLiteral("names")).toArray()) {
             request.names << name.toString();
         }
         matchInLibrary(&request);
         signature += request.id + request.status + QString::number(request.votes) +
-                (request.tipped ? QStringLiteral("$") : QString()) +
+                QString::number(request.tipState) +
                 request.playedNote + (request.fits ? QStringLiteral("f") : QString()) +
                 QLatin1Char(';');
+        if (request.tipState == 1 && !m_tipNoticed.contains(request.id)) {
+            m_tipNoticed.insert(request.id);
+            if (m_primed) {
+                emit notice(QStringLiteral("Tip pending %1: %2").arg(request.tipCode, request.song));
+            }
+        }
         if (!m_seenIds.contains(request.id)) {
             m_seenIds.insert(request.id);
             // The first load after opening only fills the list, no pop-ups.
@@ -1184,12 +1193,33 @@ void ShonRequests::rebuildList() {
         auto* pSong = new QLabel(request.song, pRow);
         pSong->setObjectName(QStringLiteral("ShonReqSong"));
         pSong->setWordWrap(true);
-        if (request.tipped) {
+        if (request.tipState == 2) {
             auto* pTip = new QLabel(QStringLiteral("$ TIPPED"), pRow);
             pTip->setObjectName(QStringLiteral("ShonReqTip"));
-            pTip->setToolTip(QStringLiteral(
-                    "The guest says they tipped. Check your Cash App or Venmo."));
+            pTip->setToolTip(QStringLiteral("You confirmed this tip. Pinned to the top."));
             pText->addWidget(pTip);
+        } else if (request.tipState == 1) {
+            auto* pTip = new QLabel(
+                    QStringLiteral("$ TIP PENDING  %1").arg(request.tipCode), pRow);
+            pTip->setObjectName(QStringLiteral("ShonReqTipPending"));
+            pTip->setToolTip(QStringLiteral(
+                    "Look for %1 in a Cash App or Venmo note, then tap Got it.")
+                            .arg(request.tipCode));
+            pText->addWidget(pTip);
+            auto* pTipRow = new QHBoxLayout();
+            pTipRow->setContentsMargins(0, 2, 0, 2);
+            auto* pTipOk = new QPushButton(QStringLiteral("Got it"), pRow);
+            pTipOk->setObjectName(QStringLiteral("ShonReqTipOk"));
+            pTipOk->setToolTip(QStringLiteral("The tip came in. Pins this request to the top."));
+            auto* pTipNo = new QPushButton(QStringLiteral("No tip"), pRow);
+            pTipNo->setToolTip(QStringLiteral("Nothing came in. The request goes back to normal."));
+            const QString tipId = request.id;
+            connect(pTipOk, &QPushButton::clicked, this, [this, tipId]() { setTip(tipId, true); });
+            connect(pTipNo, &QPushButton::clicked, this, [this, tipId]() { setTip(tipId, false); });
+            pTipRow->addWidget(pTipOk);
+            pTipRow->addWidget(pTipNo);
+            pTipRow->addStretch();
+            pText->addLayout(pTipRow);
         }
         QStringList who;
         if (!request.names.isEmpty()) {
@@ -1259,6 +1289,27 @@ void ShonRequests::rebuildList() {
     if (m_pList->verticalScrollBar()) {
         m_pList->verticalScrollBar()->setValue(scroll);
     }
+}
+
+void ShonRequests::setTip(const QString& id, bool ok) {
+    // Update the list right away. Confirmed tips move to the top.
+    for (int i = 0; i < m_requests.size(); ++i) {
+        if (m_requests[i].id == id) {
+            m_requests[i].tipState = ok ? 2 : 0;
+            m_requests[i].tipped = ok;
+            if (ok) {
+                m_requests.move(i, 0);
+            }
+            break;
+        }
+    }
+    m_lastSignature.clear();
+    rebuildList();
+    updateHeader();
+    QJsonObject body;
+    body.insert(QStringLiteral("id"), id);
+    body.insert(QStringLiteral("ok"), ok);
+    postToRelay(QStringLiteral("tip"), body);
 }
 
 void ShonRequests::setStatus(const QString& id, const QString& status) {

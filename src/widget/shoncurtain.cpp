@@ -4,6 +4,7 @@
 #include <QCursor>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QScreen>
 #include <QShortcut>
 #include <QTimer>
 
@@ -25,7 +26,7 @@ constexpr int kGraceMs = 600;
 } // namespace
 
 ShonCurtain::ShonCurtain(UserSettingsPointer pConfig, QWidget* pMainWindow)
-        : QWidget(pMainWindow, Qt::Tool | Qt::FramelessWindowHint),
+        : QWidget(pMainWindow, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint),
           m_pConfig(pConfig),
           m_pMainWindow(pMainWindow),
           m_logo(QStringLiteral(":/images/shondj-logo.png")) {
@@ -102,7 +103,7 @@ void ShonCurtain::showCurtain() {
     if (!m_pMainWindow) {
         return;
     }
-    setGeometry(m_pMainWindow->frameGeometry());
+    fitToScreen();
     m_lastCursor = QCursor::pos();
     m_shownFor.start();
     show();
@@ -111,6 +112,17 @@ void ShonCurtain::showCurtain() {
     if (m_pShow->get() <= 0.0) {
         m_pShow->set(1.0);
     }
+}
+
+// Cover the whole monitor ShonDJ is on. The window's own frame size is off on
+// Windows (hidden resize borders when maximized, rounding at 125% scaling), so
+// the screen is the reliable edge.
+void ShonCurtain::fitToScreen() {
+    if (!m_pMainWindow) {
+        return;
+    }
+    QScreen* pScreen = m_pMainWindow->screen();
+    setGeometry(pScreen ? pScreen->geometry() : m_pMainWindow->frameGeometry());
 }
 
 void ShonCurtain::hideCurtain() {
@@ -127,6 +139,12 @@ void ShonCurtain::hideCurtain() {
 }
 
 bool ShonCurtain::eventFilter(QObject* pObject, QEvent* pEvent) {
+    // ShonDJ moved to another monitor or went full screen while the logo is up.
+    if (pObject == m_pMainWindow && isVisible() &&
+            (pEvent->type() == QEvent::Move || pEvent->type() == QEvent::Resize ||
+                    pEvent->type() == QEvent::WindowStateChange)) {
+        fitToScreen();
+    }
     switch (pEvent->type()) {
     case QEvent::KeyPress:
     case QEvent::MouseButtonPress:

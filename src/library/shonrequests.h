@@ -47,8 +47,11 @@ class ShonRequests : public QObject {
         QString location;
         QString matchText;
         bool fits = false;
-        // Guest says they tipped (honor system). The relay pins it to the top.
-        bool tipped = false;
+        // Tip state from the relay: 0 none, 1 pending (guest says they sent it),
+        // 2 confirmed by you. Only confirmed tips are pinned to the top.
+        int tipState = 0;
+        bool tipped = false; // tipState == 2
+        QString tipCode;     // what the guest put in the payment note, like SHON-4K2
         QString playedNote;
         double bpm = 0.0;
         int key = 0;
@@ -89,6 +92,8 @@ class ShonRequests : public QObject {
     void handleRequests(const QByteArray& data);
     void rebuildList();
     void setStatus(const QString& id, const QString& status);
+    /// Confirm a pending tip (pins the request) or reject it (back to normal).
+    void setTip(const QString& id, bool ok);
     void loadQr();
     void showBigQr();
     void updateHeader();
@@ -126,6 +131,7 @@ class ShonRequests : public QObject {
     QList<Request> m_requests;
     QHash<QString, Request> m_matchCache;
     QSet<QString> m_seenIds;
+    QSet<QString> m_tipNoticed;
     QString m_lastSignature;
 
     QPointer<QWidget> m_pWindow;

@@ -30,6 +30,7 @@ class ShonCurtain : public QWidget {
   private:
     void showCurtain();
     void hideCurtain();
+    void fitToScreen();
     void checkIdle();
     bool mixing() const;
 
