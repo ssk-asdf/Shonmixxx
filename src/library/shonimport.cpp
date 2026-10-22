@@ -9,6 +9,15 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QSet>
+#include <QUrlQuery>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -25,6 +34,7 @@
 
 #include "analyzer/analyzerscheduledtrack.h"
 #include "control/controlpushbutton.h"
+#include "library/coverart.h"
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
 #include "moc_shonimport.cpp"
@@ -513,6 +523,7 @@ void ShonImport::finishJob(Job* pJob, const QString& stemFile) {
         return;
     }
     cleanTags(pTrack);
+    appleLookup(pTrack);
     emit m_pLibrary->analyzeTracks({AnalyzerScheduledTrack(pTrack->getId())});
     pJob->stage = Stage::Done;
     pJob->percent = 100;
@@ -561,6 +572,152 @@ void ShonImport::cleanTags(const TrackPointer& pTrack) const {
     if (!artist.isEmpty() && artist != pTrack->getArtist()) {
         pTrack->setArtist(artist);
     }
+}
+
+namespace {
+
+// Lowercase words without "(Official Video)", "feat. X" and punctuation.
+QSet<QString> shonWords(QString text) {
+    static const QRegularExpression kBrackets(QStringLiteral("[\\(\\[][^\\)\\]]*[\\)\\]]"));
+    static const QRegularExpression kFeat(QStringLiteral("\\b(ft|feat|featuring)\\b.*"),
+            QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression kNonWord(QStringLiteral("[^\\p{L}\\p{N}]+"));
+    text = text.toLower();
+    text.remove(kBrackets);
+    text.remove(kFeat);
+    text.replace(kNonWord, QStringLiteral(" "));
+    const QStringList list = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    return QSet<QString>(list.cbegin(), list.cend());
+}
+
+double shonOverlap(const QSet<QString>& a, const QSet<QString>& b) {
+    if (a.isEmpty() || b.isEmpty()) {
+        return 0.0;
+    }
+    const int shared = static_cast<int>(QSet<QString>(a).intersect(b).size());
+    return static_cast<double>(shared) / std::max(a.size(), b.size());
+}
+
+QString shonMainArtist(const QString& artist) {
+    static const QRegularExpression kSplit(
+            QStringLiteral(",|&|\\sx\\s|\\bft\\b|\\bfeat\\b|\\("),
+            QRegularExpression::CaseInsensitiveOption);
+    return artist.split(kSplit).value(0).trimmed();
+}
+
+} // namespace
+
+void ShonImport::appleLookup(const TrackPointer& pTrack) {
+    if (!pTrack || pTrack->getTitle().isEmpty()) {
+        return;
+    }
+    if (!m_pNetwork) {
+        m_pNetwork = new QNetworkAccessManager(this);
+    }
+    const QString artist = shonMainArtist(pTrack->getArtist());
+    QUrl url(QStringLiteral("https://itunes.apple.com/search"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("term"), artist + QLatin1Char(' ') + pTrack->getTitle());
+    query.addQueryItem(QStringLiteral("entity"), QStringLiteral("song"));
+    query.addQueryItem(QStringLiteral("limit"), QStringLiteral("15"));
+    query.addQueryItem(QStringLiteral("country"), QStringLiteral("US"));
+    url.setQuery(query);
+
+    QNetworkReply* pReply = m_pNetwork->get(QNetworkRequest(url));
+    connect(pReply, &QNetworkReply::finished, this, [this, pReply, pTrack]() {
+        pReply->deleteLater();
+        if (pReply->error() != QNetworkReply::NoError) {
+            return; // offline: keep the cleaned YouTube tags
+        }
+        const QJsonArray results =
+                QJsonDocument::fromJson(pReply->readAll()).object().value(QStringLiteral("results")).toArray();
+        const QSet<QString> wantTitle = shonWords(pTrack->getTitle());
+        const QSet<QString> wantArtist = shonWords(shonMainArtist(pTrack->getArtist()));
+
+        // Score every result, then take the earliest release among the best
+        // ones so remasters and compilations don't win.
+        double top = 0.0;
+        QList<QPair<double, QJsonObject>> scored;
+        for (const QJsonValue& value : results) {
+            const QJsonObject r = value.toObject();
+            const double score =
+                    0.6 * shonOverlap(wantTitle, shonWords(r.value(QStringLiteral("trackName")).toString())) +
+                    0.4 * shonOverlap(wantArtist, shonWords(r.value(QStringLiteral("artistName")).toString()));
+            scored.append({score, r});
+            top = std::max(top, score);
+        }
+        if (top < 0.6) {
+            return; // not confident, leave it as is
+        }
+        QJsonObject best;
+        QString bestDate = QStringLiteral("9999");
+        for (const auto& entry : std::as_const(scored)) {
+            const QString date = entry.second.value(QStringLiteral("releaseDate")).toString();
+            if (entry.first >= top - 0.05 && date < bestDate) {
+                best = entry.second;
+                bestDate = date;
+            }
+        }
+        const QString title = best.value(QStringLiteral("trackName")).toString();
+        const QString artist = best.value(QStringLiteral("artistName")).toString();
+        const QString genre = best.value(QStringLiteral("primaryGenreName")).toString();
+        const QString year = bestDate.left(4);
+        if (!title.isEmpty()) {
+            pTrack->setTitle(title);
+        }
+        if (!artist.isEmpty()) {
+            pTrack->setArtist(artist);
+        }
+        if (!genre.isEmpty()) {
+            pTrack->updateGenre(genre);
+        }
+        if (year != QStringLiteral("9999")) {
+            pTrack->setYear(year);
+        }
+        emit notice(QStringLiteral("Apple Music: %1 - %2 (%3, %4)").arg(artist, title, genre, year));
+        appleCover(pTrack, best.value(QStringLiteral("artworkUrl100")).toString());
+    });
+}
+
+void ShonImport::appleCover(const TrackPointer& pTrack, const QString& artworkUrl) {
+    if (artworkUrl.isEmpty()) {
+        return;
+    }
+    QString big = artworkUrl;
+    big.replace(QRegularExpression(QStringLiteral("\\d+x\\d+bb")), QStringLiteral("1000x1000bb"));
+    QNetworkReply* pReply = m_pNetwork->get(QNetworkRequest(QUrl(big)));
+    connect(pReply, &QNetworkReply::finished, this, [pReply, pTrack]() {
+        pReply->deleteLater();
+        if (pReply->error() != QNetworkReply::NoError) {
+            return;
+        }
+        const QByteArray data = pReply->readAll();
+        QImage image;
+        if (!image.loadFromData(data)) {
+            return;
+        }
+        // Saved next to your music so the stem file itself is never rewritten.
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::MusicLocation) +
+                QStringLiteral("/Covers");
+        QDir().mkpath(dir);
+        QString name = pTrack->getArtist() + QStringLiteral(" - ") + pTrack->getTitle();
+        name.remove(QRegularExpression(QStringLiteral("[<>:\"/\\\\|?*]")));
+        const QString path = dir + QLatin1Char('/') +
+                QString::number(pTrack->getId().toVariant().toLongLong()) +
+                QLatin1Char(' ') + name.left(80).trimmed() + QStringLiteral(".jpg");
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) {
+            return;
+        }
+        file.write(data);
+        file.close();
+        CoverInfoRelative cover;
+        cover.source = CoverInfo::USER_SELECTED;
+        cover.type = CoverInfo::FILE;
+        cover.coverLocation = path;
+        cover.setImageDigest(image);
+        pTrack->setCoverInfo(cover);
+    });
 }
 
 // ---------------------------------------------------------------- card

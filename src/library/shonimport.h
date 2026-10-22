@@ -23,6 +23,8 @@ class TrackCollectionManager;
 /// files into Music\Inbox. Each song gets stems made, is added to the
 /// library as its stem version and gets analyzed, one at a time in the
 /// background. The original file is kept in Music\Originals.
+class QNetworkAccessManager;
+
 class ShonImport : public QObject {
     Q_OBJECT
   public:
@@ -64,6 +66,10 @@ class ShonImport : public QObject {
     Job* currentJob();
     QString keepOriginal(const QString& file) const;
     void cleanTags(const TrackPointer& pTrack) const;
+    /// Look the song up on Apple Music: real title, artist, genre, year and
+    /// the album cover. Leaves the cleaned YouTube tags if nothing matches.
+    void appleLookup(const TrackPointer& pTrack);
+    void appleCover(const TrackPointer& pTrack, const QString& artworkUrl);
     void startProcess(const QString& program, const QStringList& args);
 
     QString inboxDir() const;
@@ -80,6 +86,7 @@ class ShonImport : public QObject {
     UserSettingsPointer m_pConfig;
     Library* m_pLibrary;
     TrackCollectionManager* m_pTrackCollectionManager;
+    QNetworkAccessManager* m_pNetwork = nullptr;
 
     std::unique_ptr<ControlPushButton> m_pShowCard;
     QTimer* m_pInboxTimer = nullptr;
