@@ -243,6 +243,8 @@ class Library: public QObject {
     std::vector<std::unique_ptr<ControlObject>> m_shonUnmuteStems;
     QTimer* m_pShonAwayTimer = nullptr;
     void shonAwayAddTracks(int count);
+    /// Name of tonight's crate, or empty for the whole library.
+    QString shonTonightCrate() const;
     // Planned transitions: songs named in the playing track's cue labels.
     void shonUpdatePlannedTransitions(TrackPointer pTrack);
     void shonAlignSwappedStem(TrackId trackId);

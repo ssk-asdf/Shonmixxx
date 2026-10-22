@@ -574,6 +574,12 @@ void Library::slotShonAwayTopUp() {
     }
 }
 
+QString Library::shonTonightCrate() const {
+    return m_pConfig->getValueString(
+                            ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("requests_crate")))
+            .trimmed();
+}
+
 void Library::shonAwayAddTracks(int count) {
     if (!m_pTrackCollectionManager) {
         return;
@@ -613,6 +619,23 @@ void Library::shonAwayAddTracks(int count) {
         }
     }
 
+    // Tonight's crate: Away only picks from it. Empty or missing crate means
+    // the whole library, same as before.
+    QSet<qlonglong> tonightIds;
+    const QString tonightCrate = shonTonightCrate();
+    if (!tonightCrate.isEmpty()) {
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral(
+                "SELECT crate_tracks.track_id FROM crate_tracks "
+                "JOIN crates ON crates.id = crate_tracks.crate_id WHERE crates.name = :name"));
+        query.bindValue(QStringLiteral(":name"), tonightCrate);
+        if (query.exec()) {
+            while (query.next()) {
+                tonightIds.insert(query.value(0).toLongLong());
+            }
+        }
+    }
+
     QList<ShonTrackInfo> candidates;
     QHash<qlonglong, ShonTrackInfo> byId;
     {
@@ -630,7 +653,8 @@ void Library::shonAwayAddTracks(int count) {
             info.energy = query.value(3).toInt();
             info.prepped = preppedIds.contains(info.id);
             byId.insert(info.id, info);
-            if (query.value(4).toInt() == 0 && !excluded.contains(info.id)) {
+            const bool inTonight = tonightIds.isEmpty() || tonightIds.contains(info.id);
+            if (query.value(4).toInt() == 0 && !excluded.contains(info.id) && inTonight) {
                 candidates.append(info);
             }
         }
@@ -946,6 +970,13 @@ void Library::shonApplyMatchesFilter(TrackPointer pTrack) {
     // Uses Mixxx's own search. The "~" goes before the field name:
     // "~bpm:" also finds half and double time, "~key:" finds compatible keys.
     QString query = QStringLiteral("~bpm:%1").arg(pTrack->getBpm(), 0, 'f', 1);
+    // Only tonight's crate, if one is set.
+    const QString tonightCrate = shonTonightCrate();
+    if (!tonightCrate.isEmpty()) {
+        QString quoted = tonightCrate;
+        quoted.remove(QLatin1Char('"'));
+        query = QStringLiteral("crate:\"%1\" ").arg(quoted) + query;
+    }
     const auto key = pTrack->getKey();
     if (key != mixxx::track::io::key::INVALID) {
         query += QStringLiteral(" ~key:%1").arg(

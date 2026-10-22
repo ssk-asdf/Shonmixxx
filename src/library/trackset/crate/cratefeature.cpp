@@ -404,6 +404,19 @@ void CrateFeature::onRightClickChild(
     menu.addSeparator();
     menu.addAction(m_pAutoDjTrackSourceAction.get());
     menu.addSeparator();
+    // Shon: one crate drives the night. Guest requests, Away and Match all
+    // stick to it. Uncheck to go back to the whole library.
+    const ConfigKey tonightKey(QStringLiteral("[Shon]"), QStringLiteral("requests_crate"));
+    const QString crateName = crate.getName();
+    auto* pTonightAction = menu.addAction(tr("Use for tonight (requests, Away, Match)"));
+    pTonightAction->setCheckable(true);
+    pTonightAction->setChecked(
+            m_pConfig->getValueString(tonightKey).trimmed() == crateName);
+    connect(pTonightAction, &QAction::triggered, this, [this, tonightKey, crateName](bool on) {
+        m_pConfig->setValue(tonightKey, on ? crateName : QString());
+        m_pConfig->save();
+    });
+    menu.addSeparator();
     menu.addAction(m_pAnalyzeCrateAction.get());
     menu.addSeparator();
     menu.addAction(m_pImportPlaylistAction.get());
