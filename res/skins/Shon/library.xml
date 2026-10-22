@@ -99,11 +99,11 @@
                       <!--Cover Art-->
                       <WidgetGroup>
                         <ObjectName>AlignCenter</ObjectName>
-                        <Layout>vertical</Layout>
+                        <Layout>horizontal</Layout>
                         <Children>
                           <CoverArt>
-                            <SizePolicy>me,me</SizePolicy>
-                            <MinimumSize>40,40</MinimumSize>
+                            <SizePolicy>f,f</SizePolicy>
+                            <Size>140f,140f</Size>
                             <!-- Shon: hidden in stealth mode -->
                             <Connection>
                               <ConfigKey>[Shon],stealth</ConfigKey>
@@ -111,6 +111,15 @@
                               <BindProperty>visible</BindProperty>
                             </Connection>
                           </CoverArt>
+                          <!-- Shon: BPM and key, tonight's crate, up next, requests -->
+                          <ShonInfo>
+                            <SizePolicy>me,me</SizePolicy>
+                            <Connection>
+                              <ConfigKey>[Shon],stealth</ConfigKey>
+                              <Transform><Not/></Transform>
+                              <BindProperty>visible</BindProperty>
+                            </Connection>
+                          </ShonInfo>
                         </Children>
                         <Connection>
                           <ConfigKey persist="true">[Skin],show_library_coverart</ConfigKey>

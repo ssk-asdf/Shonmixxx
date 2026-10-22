@@ -232,7 +232,13 @@ void CrateFeature::updateTreeItemForCrateSummary(
         DEBUG_ASSERT(CrateId(pTreeItem->getData()) == crateSummary.getId());
     }
     // Update mutable properties
-    pTreeItem->setLabel(formatLabel(crateSummary));
+    // Shon: a dot marks tonight's crate.
+    const bool tonight = m_pConfig->getValueString(
+                                     ConfigKey(QStringLiteral("[Shon]"),
+                                             QStringLiteral("requests_crate")))
+                                 .trimmed() == crateSummary.getName();
+    pTreeItem->setLabel((tonight ? QStringLiteral("\u25CF ") : QString()) +
+            formatLabel(crateSummary));
     pTreeItem->setIcon(crateSummary.isLocked() ? m_lockedCrateIcon : QIcon());
 }
 
@@ -415,6 +421,7 @@ void CrateFeature::onRightClickChild(
     connect(pTonightAction, &QAction::triggered, this, [this, tonightKey, crateName](bool on) {
         m_pConfig->setValue(tonightKey, on ? crateName : QString());
         m_pConfig->save();
+        rebuildChildModel(); // move the dot
     });
     menu.addSeparator();
     menu.addAction(m_pAnalyzeCrateAction.get());

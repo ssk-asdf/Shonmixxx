@@ -245,6 +245,10 @@ class Library: public QObject {
     void shonAwayAddTracks(int count);
     /// Name of tonight's crate, or empty for the whole library.
     QString shonTonightCrate() const;
+  public:
+    /// "Artist - Title" of the first song in the Auto DJ queue, or empty.
+    QString shonUpNext() const;
+  private:
     // Planned transitions: songs named in the playing track's cue labels.
     void shonUpdatePlannedTransitions(TrackPointer pTrack);
     void shonAlignSwappedStem(TrackId trackId);

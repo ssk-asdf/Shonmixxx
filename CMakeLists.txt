@@ -1845,6 +1845,7 @@ add_library(
   src/widget/wspinny.cpp
   src/widget/wspinnybase.cpp
   src/widget/shoncurtain.cpp
+  src/widget/shoninfopanel.cpp
   src/widget/wsplitter.cpp
   src/widget/wstarrating.cpp
   src/widget/wstatuslight.cpp

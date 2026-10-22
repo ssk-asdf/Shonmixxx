@@ -11,6 +11,7 @@
 
 #include "preferences/usersettings.h"
 
+class ControlObject;
 class ControlPushButton;
 class Library;
 class QLabel;
@@ -122,6 +123,7 @@ class ShonRequests : public QObject {
     QString m_catalogSignature;
     int m_catalogCount = 0;
     std::unique_ptr<ControlPushButton> m_pShowWindow;
+    std::unique_ptr<ControlObject> m_pWaiting; // [Shon],requests_waiting
 
     QString m_code;
     QString m_key;

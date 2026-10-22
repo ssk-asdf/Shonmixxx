@@ -39,6 +39,7 @@
 #include "widget/wbpmeditor.h"
 #include "widget/wcombobox.h"
 #include "widget/wcoverart.h"
+#include "widget/shoninfopanel.h"
 #include "widget/wcuebutton.h"
 #include "widget/wdisplay.h"
 #include "widget/weffectbuttonparametername.h"
@@ -604,6 +605,11 @@ QList<QWidget*> LegacySkinParser::parseNode(const QDomElement& node) {
         result = wrapWidget(parseTableView(node));
     } else if (nodeName == "CoverArt") {
         result = wrapWidget(parseCoverArt(node));
+    } else if (nodeName == "ShonInfo") {
+        auto* pPanel = new ShonInfoPanel(m_pParent, m_pConfig, m_pLibrary);
+        commonWidgetSetup(node, pPanel);
+        connect(m_pLibrary, &Library::trackSelected, pPanel, &ShonInfoPanel::slotTrackSelected);
+        result = wrapWidget(pPanel);
     } else if (nodeName == "SearchBox") {
         result = wrapWidget(parseSearchBox(node));
     } else if (nodeName == "WidgetGroup") {

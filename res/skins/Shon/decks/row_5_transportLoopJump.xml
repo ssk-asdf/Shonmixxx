@@ -248,6 +248,20 @@
           </WidgetGroup><!-- /loops and jumps -->
 
           <WidgetGroup><Size>4f,0min</Size></WidgetGroup>
+          <!-- Shon: keylock, so sync and tempo changes don't change the pitch -->
+          <WidgetGroup>
+            <Layout>vertical</Layout>
+            <SizePolicy>min,max</SizePolicy>
+            <Children>
+              <Template src="skin:/controls/button_2state.xml">
+                <SetVariable name="TooltipId">keylock</SetVariable>
+                <SetVariable name="ObjectName">KeylockButton<Variable name="DeckGroup"/></SetVariable>
+                <SetVariable name="ConfigKey"><Variable name="Group"/>,keylock</SetVariable>
+                <SetVariable name="Size">34f,32f</SetVariable>
+              </Template>
+            </Children>
+          </WidgetGroup>
+          <WidgetGroup><Size>2f,0min</Size></WidgetGroup>
           <WidgetGroup>
             <Layout>vertical</Layout>
             <SizePolicy>min,max</SizePolicy>

@@ -248,6 +248,10 @@ ShonRequests::ShonRequests(UserSettingsPointer pConfig,
         newParty();
     }
 
+    // [Shon],requests_waiting is the count the library info panel shows.
+    m_pWaiting = std::make_unique<ControlObject>(
+            ConfigKey(kGroup, QStringLiteral("requests_waiting")));
+
     // [Shon],requests_window shows or hides the side panel (top bar button).
     m_pShowWindow = std::make_unique<ControlPushButton>(
             ConfigKey(kGroup, QStringLiteral("requests_window")));
@@ -1156,6 +1160,9 @@ void ShonRequests::matchInLibrary(Request* pRequest) {
 }
 
 void ShonRequests::rebuildList() {
+    if (m_pWaiting) {
+        m_pWaiting->set(m_requests.size());
+    }
     if (!m_pList) {
         return;
     }

@@ -331,6 +331,30 @@ Library::Library(
         }
     }
 
+    // Shon: sidebar for a party DJ. Crates first, then the library, playlists,
+    // history and Auto DJ. Computer, Recordings, Analyze and other DJ apps'
+    // libraries still work in the background, they just aren't listed.
+    {
+        static const char* const kOrder[] = {"CrateFeature",
+                "MixxxLibraryFeature",
+                "PlaylistFeature",
+                "SetlogFeature",
+                "AutoDJFeature"};
+        int index = 0;
+        for (const char* className : kOrder) {
+            for (LibraryFeature* pFeature : std::as_const(m_features)) {
+                if (QString::fromLatin1(pFeature->metaObject()->className()) ==
+                        QLatin1String(className)) {
+                    m_pSidebarModel->addLibraryFeature(pFeature);
+                    if (pFeature == m_pMixxxLibraryFeature) {
+                        m_pSidebarModel->setDefaultSelection(index); // open on Tracks
+                    }
+                    ++index;
+                }
+            }
+        }
+    }
+
     // On startup we need to check if all of the user's library folders are
     // accessible to us. If the user is using a database from <1.12.0 with
     // sandboxing then we will need them to give us permission.
@@ -572,6 +596,31 @@ void Library::slotShonAwayTopUp() {
     if (autoDjId >= 0 && playlistDao.tracksInPlaylist(autoDjId) < kShonAwayTopUpBelow) {
         shonAwayAddTracks(kShonAwayTopUpTracks);
     }
+}
+
+QString Library::shonUpNext() const {
+    if (!m_pTrackCollectionManager) {
+        return QString();
+    }
+    TrackCollection* pCollection = m_pTrackCollectionManager->internalCollection();
+    PlaylistDAO& playlistDao = pCollection->getPlaylistDAO();
+    const int autoDjId = playlistDao.getPlaylistIdFromName(AUTODJ_TABLE);
+    if (autoDjId < 0) {
+        return QString();
+    }
+    const QList<TrackId> queued = playlistDao.getTrackIdsInPlaylistOrder(autoDjId);
+    if (queued.isEmpty()) {
+        return QString();
+    }
+    QSqlQuery query(pCollection->database());
+    query.prepare(QStringLiteral("SELECT artist, title FROM library WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), queued.first().toVariant());
+    if (!query.exec() || !query.next()) {
+        return QString();
+    }
+    const QString artist = query.value(0).toString();
+    const QString title = query.value(1).toString();
+    return artist.isEmpty() ? title : artist + QStringLiteral(" - ") + title;
 }
 
 QString Library::shonTonightCrate() const {
@@ -1214,7 +1263,7 @@ void Library::addFeature(LibraryFeature* feature) {
         return;
     }
     m_features.push_back(feature);
-    m_pSidebarModel->addLibraryFeature(feature);
+    // Shon: the sidebar is filled in order at the end of the constructor.
     connect(feature,
             &LibraryFeature::pasteFromSidebar,
             this,
