@@ -1,3 +1,41 @@
+ShonDJ
+
+ShonDJ is my custom build of Mixxx, the open-source DJ software. I forked it to build the features I wanted for playing live sets: a phone remote, guest song requests, automatic stems, and a full custom skin.
+
+Default branch: tips. The original Mixxx README and license are kept below.
+
+What I added
+
+Guest song requests (QR code) Guests scan a QR code and send song requests through a small relay server. ShonDJ polls the relay and shows a requests inbox next to the library, matches requests to songs I already have, and lets me drag them straight onto a deck. It also supports a 30-second crowd poll between two songs. Nothing plays on its own; I always decide.
+
+Phone remote ShonDJ serves a control page over local Wi-Fi (scan a QR code to open it). If the phone drops off Wi-Fi, the page falls back to the relay over cell data and switches back when Wi-Fi returns.
+
+Song import with automatic stems Drop files into an inbox folder and ShonDJ processes them in the background: it calls a Python script that runs Demucs to split each song into stems, adds the stem version to the library, and analyzes it. A two-lane queue keeps imports moving, and stem jobs pause while music is playing so the mix never stutters.
+
+Practice mode Watches my transitions and scores each one after it ends: how tight the beats were, whether it started on a 16-bar phrase, and how long the blend ran. It only reports and never touches the mix.
+
+Shon skin and interface
+
+A full custom skin with its own layout, colors, toolbar, and waveform view
+Info panel showing the selected song's BPM and key, tonight's crate, and waiting requests
+Smoothed waveform rendering so peaks read as a clean wave
+Stealth mode that hides song titles and cover art from people looking at the screen
+Logo screen (Ctrl+L) that also appears after idle time, but never while a deck is playing
+New ShonDJ logo, icons, and library icons
+
+Library tool (Python) tools/shon_genres.py looks up each song on Apple's free music search and fills in the real genre, release year, and album cover. It has a preview mode and backs up the library database before writing.
+
+Built with
+
+C++ and Qt (inside the Mixxx codebase), Python, SQLite, and qrcodegen for the QR codes.
+
+Screenshots
+<img width="1917" height="1019" alt="Screenshot 2026-11-19 144451" src="https://github.com/user-attachments/assets/e2952b6f-d0bf-476c-aa79-c99a2116d44f" />
+<img width="1917" height="1019" alt="Screenshot 2026-11-19 144353" src="https://github.com/user-attachments/assets/2fe98361-fd2d-48a4-8fed-ef0a0b1f135d" />
+<img width="1917" height="1078" alt="Screenshot 2026-11-19 144248" src="https://github.com/user-attachments/assets/eaaeea58-707b-4f53-b62c-31d08ca00ab1" />
+
+ShonDJ is based on Mixxx and is licensed under the GPL, the same as Mixxx. Everything below is the original Mixxx README.
+
 # Mixxx
 
 [![GitHub latest tag](https://img.shields.io/github/tag/mixxxdj/mixxx.svg)](https://mixxx.org/download)
