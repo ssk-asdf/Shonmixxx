@@ -473,6 +473,7 @@ QAbstractItemDelegate* BaseTrackTableModel::delegateForColumn(
 }
 
 QSet<qlonglong> BaseTrackTableModel::s_shonPlannedIds;
+QHash<qlonglong, QString> BaseTrackTableModel::s_shonPlannedNotes;
 
 QVariant BaseTrackTableModel::data(
         const QModelIndex& index,
@@ -686,6 +687,15 @@ QVariant BaseTrackTableModel::roleValue(
     const auto field = mapColumn(index.column());
     if (field == ColumnCache::COLUMN_LIBRARYTABLE_INVALID) {
         return rawValue;
+    }
+    // Shon planned transitions: your notes from the cue label after the title.
+    if (role == Qt::DisplayRole && field == ColumnCache::COLUMN_LIBRARYTABLE_TITLE &&
+            !s_shonPlannedNotes.isEmpty() && !shonStealthActive()) {
+        const QString note = s_shonPlannedNotes.value(
+                rawSiblingValue(index, ColumnCache::COLUMN_LIBRARYTABLE_ID).toLongLong());
+        if (!note.isEmpty()) {
+            return QVariant(rawValue.toString() + QStringLiteral("  ") + note);
+        }
     }
     // Shon stealth: dots instead of names. Hovering a cell shows the real
     // name in a tooltip so you can still find your track.

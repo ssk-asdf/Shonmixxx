@@ -2496,6 +2496,11 @@ else()
   add_executable(mixxx WIN32 src/main.cpp)
 endif()
 
+if(WIN32)
+  # ShonDJ: the program is ShonDJ.exe, so Task Manager and Explorer say ShonDJ.
+  set_target_properties(mixxx PROPERTIES OUTPUT_NAME "ShonDJ")
+endif()
+
 if(NOT QML)
   target_sources(
     mixxx-lib

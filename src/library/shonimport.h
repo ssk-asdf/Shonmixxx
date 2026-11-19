@@ -4,11 +4,14 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QPoint>
 #include <QPointer>
+#include <QSet>
 #include <memory>
 
 #include "preferences/usersettings.h"
 #include "track/track_decl.h"
+#include "track/trackid.h"
 
 class ControlPushButton;
 class Library;
@@ -37,40 +40,57 @@ class ShonImport : public QObject {
   signals:
     void notice(const QString& text);
 
+  protected:
+    /// Drag the card by its title, and close it when you click anywhere
+    /// else in ShonDJ.
+    bool eventFilter(QObject* pObject, QEvent* pEvent) override;
+
   private:
     enum class Stage {
-        Waiting,
+        Waiting,     // in line to download (links) or to be added (files)
         Downloading,
-        Stems,
+        Playable,    // in the library and playable, waiting for stems
+        Stems,       // playable, stems being made
         Done,
         Failed,
     };
     struct Job {
         int id = 0;
-        QString url;   // set for links
-        QString file;  // the downloaded or dropped audio file
-        QString name;  // shown to the user
+        QString url;      // set for links
+        QString videoId;  // YouTube id, to skip songs you already have
+        QString file;     // the downloaded or dropped audio file
+        QString name;     // shown to the user
+        TrackId trackId;  // the playable version in the library
+        QString stemFile; // finished stem file waiting to replace it
         Stage stage = Stage::Waiting;
         int percent = -1;
         QString message;
     };
 
     void addLink(const QString& url);
+    void expandPlaylist(const QString& url);
     void scanInbox();
-    void startNext();
+    /// Keeps both lanes busy: one song downloading while earlier ones get stems.
+    void pump();
     void runDownload(Job* pJob);
-    void runStems(Job* pJob);
-    void finishJob(Job* pJob, const QString& stemFile);
+    void addPlayable(Job* pJob);
+    void runStemsBatch();
+    void stemReady(Job* pJob);
+    void trySwaps();
+    bool swapToStems(Job* pJob);
     void failJob(Job* pJob, const QString& message);
-    void onProcessOutput();
-    Job* currentJob();
+    void onDownloadOutput();
+    void onStemsOutput();
+    Job* jobById(int id);
+    QProcess* newProcess();
+    bool haveVideo(const QString& videoId);
+    void loadHaveIds();
     QString keepOriginal(const QString& file) const;
     void cleanTags(const TrackPointer& pTrack) const;
     /// Look the song up on Apple Music: real title, artist, genre, year and
     /// the album cover. Leaves the cleaned YouTube tags if nothing matches.
     void appleLookup(const TrackPointer& pTrack);
     void appleCover(const TrackPointer& pTrack, const QString& artworkUrl);
-    void startProcess(const QString& program, const QStringList& args);
 
     QString inboxDir() const;
     QString workDir() const;
@@ -93,13 +113,29 @@ class ShonImport : public QObject {
     QHash<QString, qint64> m_inboxSizes;
     QList<Job> m_jobs;
     int m_nextId = 1;
-    int m_currentId = 0;
-    QProcess* m_pProcess = nullptr;
-    QByteArray m_processOutput;
-    QString m_downloadedFile;
+    // Two lanes: one download at a time, one stems batch at a time.
+    QProcess* m_pDownload = nullptr;
+    int m_downloadId = 0;
+    QByteArray m_downloadOutput;
+    QProcess* m_pStems = nullptr;
+    QList<int> m_stemIds;
+    QByteArray m_stemsOutput;
+    QProcess* m_pPlaylist = nullptr;
+    QTimer* m_pSwapTimer = nullptr;
+    QSet<QString> m_haveIds;
+    bool m_haveIdsLoaded = false;
     bool m_triedModuleYtDlp = false;
+    // Stems wait while music plays (downloads don't, so requests still land
+    // and are playable right away). [Shon],import_stems_while_playing = 1
+    // lets them run anyway.
+    QTimer* m_pPlayWatch = nullptr;
+    bool m_stemsPaused = false;
+    bool anyDeckPlaying() const;
+    void setStemsPaused(bool paused);
 
     QPointer<QWidget> m_pCard;
     QLineEdit* m_pLinkEdit = nullptr;
     QLabel* m_pJobsLabel = nullptr;
+    QLabel* m_pTitleLabel = nullptr;
+    QPoint m_dragOffset;
 };

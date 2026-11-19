@@ -21,7 +21,7 @@ QLabel* makeLabel(QWidget* pParent, const QString& style) {
 }
 
 QString row(const QString& name, const QString& value) {
-    return QStringLiteral("<span style='color:#7d7d86'>%1</span><br>%2")
+    return QStringLiteral("<span style='color:#7d7d86'>%1</span>  %2")
             .arg(name, value.toHtmlEscaped());
 }
 
@@ -31,19 +31,18 @@ ShonInfoPanel::ShonInfoPanel(QWidget* pParent, UserSettingsPointer pConfig, Libr
         : WWidget(pParent),
           m_pConfig(pConfig),
           m_pLibrary(pLibrary) {
-    const QString base = QStringLiteral("color:#e8e8ee; font-size:12px; background:transparent;");
+    const QString base = QStringLiteral("color:#e8e8ee; font-size:11px; background:transparent;");
     m_pTitle = makeLabel(this, base + QStringLiteral("font-weight:600;"));
-    m_pBpmKey = makeLabel(this, QStringLiteral("color:#4d8dff; font-size:15px; font-weight:700;"));
+    m_pBpmKey = makeLabel(this, QStringLiteral("color:#4d8dff; font-size:13px; font-weight:700;"));
     m_pTonight = makeLabel(this, base);
     m_pUpNext = makeLabel(this, base);
     m_pRequests = makeLabel(this, base);
 
     auto* pLayout = new QVBoxLayout(this);
-    pLayout->setContentsMargins(10, 6, 6, 6);
-    pLayout->setSpacing(6);
+    pLayout->setContentsMargins(8, 2, 4, 2);
+    pLayout->setSpacing(1);
     pLayout->addWidget(m_pTitle);
     pLayout->addWidget(m_pBpmKey);
-    pLayout->addSpacing(4);
     pLayout->addWidget(m_pTonight);
     pLayout->addWidget(m_pUpNext);
     pLayout->addWidget(m_pRequests);
@@ -91,6 +90,7 @@ void ShonInfoPanel::refresh() {
     const QString upNext = m_pLibrary ? m_pLibrary->shonUpNext() : QString();
     m_pUpNext->setText(row(QStringLiteral("Up next"),
             upNext.isEmpty() ? QStringLiteral("Queue empty") : upNext));
+    m_pUpNext->setToolTip(upNext);
 
     const int waiting = static_cast<int>(ControlObject::get(
             ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("requests_waiting"))));

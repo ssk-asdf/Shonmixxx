@@ -9,7 +9,9 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QRandomGenerator>
+#include <QPointer>
 #include <QRegularExpression>
+#include <QTimer>
 #include <QSet>
 #include <QSqlQuery>
 #include <algorithm>
@@ -152,6 +154,52 @@ Library::Library(
             Qt::QueuedConnection);
 
     // Shon: stem lines on the waveform. On by default, remembered.
+    // Shon: while any deck plays, background analysis waits (loading a song
+    // still analyzes it right away). It picks up again when the music stops.
+    {
+        auto* pPlayWatch = new QTimer(this);
+        pPlayWatch->setInterval(1000);
+        connect(pPlayWatch, &QTimer::timeout, this, [this]() {
+            bool playing = false;
+            for (int deck = 1; deck <= 4; ++deck) {
+                const ControlObject* pPlay = ControlObject::getControl(
+                        ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play")),
+                        ControlFlag::NoAssertIfMissing);
+                if (pPlay && pPlay->get() > 0.0) {
+                    playing = true;
+                }
+            }
+            if (m_pAnalysisFeature) {
+                m_pAnalysisFeature->shonSetHold(playing);
+            }
+        });
+        pPlayWatch->start();
+    }
+
+    // Shon: save cues, beatgrids and other edits on loaded tracks every
+    // 15 seconds. Normally Mixxx only saves when a track is unloaded, so a
+    // dead battery or a crash lost every cue set since loading.
+    {
+        auto* pAutosave = new QTimer(this);
+        pAutosave->setInterval(15000);
+        connect(pAutosave, &QTimer::timeout, this, [this]() {
+            if (!m_pTrackCollectionManager) {
+                return;
+            }
+            QStringList groups;
+            for (int i = 1; i <= 4; ++i) {
+                groups << QStringLiteral("[Channel%1]").arg(i);
+            }
+            groups << QStringLiteral("[PreviewDeck1]");
+            for (const QString& group : std::as_const(groups)) {
+                TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+                if (pTrack && pTrack->isDirty()) {
+                    m_pTrackCollectionManager->saveTrack(pTrack);
+                }
+            }
+        });
+        pAutosave->start();
+    }
     m_pShonStemLines = std::make_unique<ControlPushButton>(
             ConfigKey(QStringLiteral("[Shon]"), QStringLiteral("stem_lines")), true, 1.0);
     static_cast<ControlPushButton*>(m_pShonStemLines.get())
@@ -247,7 +295,8 @@ Library::Library(
 
     addFeature(new RecordingFeature(this, m_pConfig, pRecordingManager));
 
-    addFeature(new SetlogFeature(this, UserSettingsPointer(m_pConfig)));
+    auto* pSetlogFeature = new SetlogFeature(this, UserSettingsPointer(m_pConfig));
+    addFeature(pSetlogFeature);
 
     m_pAnalysisFeature = make_parented<AnalysisFeature>(this, m_pConfig);
     connect(m_pPlaylistFeature,
@@ -335,23 +384,21 @@ Library::Library(
     // history and Auto DJ. Computer, Recordings, Analyze and other DJ apps'
     // libraries still work in the background, they just aren't listed.
     {
-        static const char* const kOrder[] = {"CrateFeature",
-                "MixxxLibraryFeature",
-                "PlaylistFeature",
-                "SetlogFeature",
-                "AutoDJFeature"};
+        const QList<LibraryFeature*> order = {m_pCrateFeature.get(),
+                m_pMixxxLibraryFeature.get(),
+                m_pPlaylistFeature.get(),
+                pSetlogFeature,
+                m_pAutoDJFeature.get()};
         int index = 0;
-        for (const char* className : kOrder) {
-            for (LibraryFeature* pFeature : std::as_const(m_features)) {
-                if (QString::fromLatin1(pFeature->metaObject()->className()) ==
-                        QLatin1String(className)) {
-                    m_pSidebarModel->addLibraryFeature(pFeature);
-                    if (pFeature == m_pMixxxLibraryFeature) {
-                        m_pSidebarModel->setDefaultSelection(index); // open on Tracks
-                    }
-                    ++index;
-                }
+        for (LibraryFeature* pFeature : order) {
+            if (!pFeature || !m_features.contains(pFeature)) {
+                continue;
             }
+            m_pSidebarModel->addLibraryFeature(pFeature);
+            if (pFeature == m_pMixxxLibraryFeature.get()) {
+                m_pSidebarModel->setDefaultSelection(index); // open on Tracks
+            }
+            ++index;
         }
     }
 
@@ -466,7 +513,11 @@ void Library::slotShonDeckTrackChanged(
         if (!pCue || pCue->getHotCue() < 0) {
             continue;
         }
+        static const QRegularExpression kComeInNotes(
+                QStringLiteral("\\([^)]*\\)|\\[[^\\]]*\\]"));
         QString label = pCue->getLabel().trimmed().toLower();
+        label.remove(kComeInNotes);
+        label = label.trimmed();
         if (label.startsWith(QLatin1Char('<'))) {
             label = label.mid(1);
         } else if (label.startsWith(QLatin1String("from "))) {
@@ -482,11 +533,32 @@ void Library::slotShonDeckTrackChanged(
             return playingWords.contains(word);
         });
         if (matches) {
-            emit shonNotice(QStringLiteral("%1: come in at cue %2 (from %3)")
+            const int number = pCue->getHotCue() + 1;
+            emit shonNotice(QStringLiteral("%1: ready at cue %2 (from %3)")
                                     .arg(pNewTrack->getTitle())
-                                    .arg(pCue->getHotCue() + 1)
+                                    .arg(number)
                                     .arg(pPlaying->getTitle()));
-            Q_UNUSED(group);
+            // Park the deck right on that cue so it's ready to go. Wait a
+            // moment so the normal "jump to the main cue" on load runs first.
+            QPointer<Library> pThis(this);
+            const TrackPointer pLoaded = pNewTrack;
+            QTimer::singleShot(400, this, [pThis, group, number, pLoaded]() {
+                if (!pThis) {
+                    return;
+                }
+                if (PlayerInfo::instance().getTrackInfo(group) != pLoaded) {
+                    return; // something else got loaded meanwhile
+                }
+                if (ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0.0) {
+                    return; // never move a deck that is playing
+                }
+                ControlProxy gotoCue(group,
+                        QStringLiteral("hotcue_%1_gotoandstop").arg(number));
+                if (gotoCue.valid()) {
+                    gotoCue.set(1.0);
+                    gotoCue.set(0.0);
+                }
+            });
             return;
         }
     }
@@ -495,6 +567,17 @@ void Library::slotShonDeckTrackChanged(
 void Library::slotShonPlayingTrackChanged(TrackPointer pTrack) {
     if (pTrack) {
         shonUpdatePlannedTransitions(pTrack);
+        // A song already loaded with a "<this song" cue: get it ready now.
+        const int numDecks = static_cast<int>(
+                ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("num_decks"))));
+        for (int deck = 1; deck <= std::max(numDecks, 2); ++deck) {
+            const QString group = QStringLiteral("[Channel%1]").arg(deck);
+            TrackPointer pLoaded = PlayerInfo::instance().getTrackInfo(group);
+            if (pLoaded && pLoaded != pTrack &&
+                    ControlObject::get(ConfigKey(group, QStringLiteral("play"))) <= 0.0) {
+                slotShonDeckTrackChanged(group, pLoaded, TrackPointer());
+            }
+        }
     }
     // Only follow the playing track while the filter is on, and keep the
     // last results when nothing is playing.
@@ -911,6 +994,7 @@ void Library::shonUpdatePlannedTransitions(TrackPointer pTrack) {
             QStringLiteral("mix"),
             QStringLiteral("loop")};
     QSet<qlonglong> plannedIds;
+    QHash<qlonglong, QString> plannedNotes;
     QStringList searches;
     QStringList noticeParts;
     if (m_pTrackCollectionManager) {
@@ -923,6 +1007,21 @@ void Library::shonUpdatePlannedTransitions(TrackPointer pTrack) {
                 continue;
             }
             QString label = pCue->getLabel().toLower();
+            // Your own notes in brackets, "(V)" or "(M)()(DB)", are not part
+            // of the song name. Keep them to show next to the song.
+            static const QRegularExpression kNotes(
+                    QStringLiteral("\\([^)]*\\)|\\[[^\\]]*\\]"));
+            QStringList notes;
+            {
+                auto it = kNotes.globalMatch(pCue->getLabel());
+                while (it.hasNext()) {
+                    const QString note = it.next().captured(0);
+                    if (note.size() > 2) { // skip empty "()"
+                        notes << note;
+                    }
+                }
+            }
+            label.remove(kNotes);
             // "from Blow" or "< Blow" marks where this song comes in.
             // That points back, so it is not a planned transition.
             if (label.trimmed().startsWith(QLatin1Char('<')) ||
@@ -990,9 +1089,16 @@ void Library::shonUpdatePlannedTransitions(TrackPointer pTrack) {
                     continue;
                 }
                 plannedIds.insert(query.value(0).toLongLong());
+                if (!notes.isEmpty()) {
+                    plannedNotes.insert(query.value(0).toLongLong(), notes.join(QString()));
+                }
                 searches << words.join(QLatin1Char(' '));
-                noticeParts << QStringLiteral("%1 at cue %2")
-                                       .arg(query.value(1).toString())
+                noticeParts << QStringLiteral("%1%2 at cue %3")
+                                       .arg(query.value(1).toString(),
+                                               notes.isEmpty()
+                                                       ? QString()
+                                                       : QStringLiteral(" ") +
+                                                               notes.join(QString()))
                                        .arg(pCue->getHotCue() + 1);
                 break;
             }
@@ -1000,6 +1106,7 @@ void Library::shonUpdatePlannedTransitions(TrackPointer pTrack) {
     }
     m_shonPlannedSearch = searches;
     BaseTrackTableModel::shonSetPlannedTrackIds(plannedIds);
+    BaseTrackTableModel::shonSetPlannedNotes(plannedNotes);
     const auto widgets = QApplication::allWidgets();
     for (QWidget* pWidget : widgets) {
         if (auto* pView = qobject_cast<QAbstractItemView*>(pWidget)) {

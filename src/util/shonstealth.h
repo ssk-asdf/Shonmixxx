@@ -21,8 +21,15 @@ inline const ConfigKey& shonStealthPeekKey() {
 }
 
 inline bool shonStealthActive() {
-    return ControlObject::get(shonStealthKey()) > 0.0 &&
-            ControlObject::get(shonStealthPeekKey()) <= 0.0;
+    // The controls may not exist (tests, or before the library is set up).
+    const ControlObject* pStealth =
+            ControlObject::getControl(shonStealthKey(), ControlFlag::NoAssertIfMissing);
+    if (!pStealth || pStealth->get() <= 0.0) {
+        return false;
+    }
+    const ControlObject* pPeek =
+            ControlObject::getControl(shonStealthPeekKey(), ControlFlag::NoAssertIfMissing);
+    return !pPeek || pPeek->get() <= 0.0;
 }
 
 /// What a hidden title shows. Artist, album and the rest just go blank.

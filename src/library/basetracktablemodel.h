@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QAbstractTableModel>
 #include <QList>
 #include <QPointer>
@@ -340,9 +341,15 @@ class BaseTrackTableModel : public QAbstractTableModel, public TrackModel {
     static void shonSetPlannedTrackIds(const QSet<qlonglong>& ids) {
         s_shonPlannedIds = ids;
     }
+    /// Your own notes from the cue label, like "(V)" in "This Could Be Us (V)",
+    /// shown after the planned song's title.
+    static void shonSetPlannedNotes(const QHash<qlonglong, QString>& notes) {
+        s_shonPlannedNotes = notes;
+    }
 
   private:
     static QSet<qlonglong> s_shonPlannedIds;
+    static QHash<qlonglong, QString> s_shonPlannedNotes;
 
     // Shon smart next-track highlighting.
     // 0 = no match, 1 = BPM and key fit, 2 = BPM, key, and energy all fit.

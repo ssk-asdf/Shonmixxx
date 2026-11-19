@@ -21,7 +21,8 @@ const mixxx::Logger kLogger("AnalysisFeature");
 const QString kViewName = QStringLiteral("Analysis");
 
 // Utilize all available cores for batch analysis of tracks
-const int kNumberOfAnalyzerThreads = math_max(1, QThread::idealThreadCount());
+// Shon: one at a time. Two analyzers opening stem files at once crashed ShonDJ.
+const int kNumberOfAnalyzerThreads = 1;
 
 inline
 int numberOfAnalyzerThreads() {
@@ -179,7 +180,19 @@ void AnalysisFeature::analyzeTracks(const QList<AnalyzerScheduledTrack>& tracks)
         emit analysisActive(true);
     }
 
-    if (m_pTrackAnalysisScheduler->scheduleTracks(tracks) > 0) {
+    if (m_pTrackAnalysisScheduler->scheduleTracks(tracks) > 0 && !m_shonHold) {
+        resumeAnalysis();
+    }
+}
+
+void AnalysisFeature::shonSetHold(bool hold) {
+    if (hold == m_shonHold) {
+        return;
+    }
+    m_shonHold = hold;
+    if (hold) {
+        suspendAnalysis();
+    } else {
         resumeAnalysis();
     }
 }

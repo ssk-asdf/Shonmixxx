@@ -11,6 +11,7 @@
 
 class ControlPushButton;
 class QTimer;
+class QPropertyAnimation;
 
 /// ShonDJ logo screen. A full window cover with just the logo, like the
 /// loading screen without the spinner. Ctrl+L or [Shon],curtain shows it, any
@@ -39,6 +40,8 @@ class ShonCurtain : public QWidget {
     std::unique_ptr<ControlPushButton> m_pShow;
     std::unique_ptr<ControlPushButton> m_pAuto;
     QTimer* m_pIdleTimer = nullptr;
+    QPropertyAnimation* m_pFade = nullptr; // window opacity, in and out
+    bool m_fadingOut = false;
     QElapsedTimer m_idle;
     QElapsedTimer m_shownFor;
     QPoint m_lastCursor;

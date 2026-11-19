@@ -43,6 +43,9 @@ class AnalysisFeature : public LibraryFeature {
     void suspendAnalysis();
     void resumeAnalysis();
     void stopAnalysis();
+    /// Shon: hold background analysis while music plays, so it never steals
+    /// the processor mid-set. Songs you load still get analyzed right away.
+    void shonSetHold(bool hold);
 
   private slots:
     void onTrackAnalysisSchedulerProgress(AnalyzerProgress currentTrackProgress, int currentTrackNumber, int totalTracksCount);
@@ -67,4 +70,5 @@ class AnalysisFeature : public LibraryFeature {
 
     // The title is dynamic and reflects the current progress
     QString m_title;
+    bool m_shonHold = false;
 };

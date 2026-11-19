@@ -764,13 +764,17 @@ SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool
     }
 
 #ifdef __WINDOWS__
+    // Shon: WASAPI when Windows has it (lower latency), else DirectSound.
+    const QString windowsApi = apis.contains(QStringLiteral("Windows WASAPI"))
+            ? QStringLiteral("Windows WASAPI")
+            : SoundManagerConfig::kAPIDirectSound;
     // Laptop plus outside speakers (USB sound card, HDMI TV): Main goes to
     // the speakers and the laptop's own jack becomes the headphone cue.
-    if (!laptopOnly && apis.contains(SoundManagerConfig::kAPIDirectSound)) {
+    if (!laptopOnly && apis.contains(windowsApi)) {
         SoundDevicePointer pBuiltIn;
         SoundDevicePointer pExternal;
         const QList<SoundDevicePointer> devices =
-                getDeviceList(SoundManagerConfig::kAPIDirectSound, true, false);
+                getDeviceList(windowsApi, true, false);
         for (const auto& pDevice : devices) {
             if (pDevice->getNumOutputChannels().value() < 2) {
                 continue;
@@ -788,7 +792,7 @@ SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool
             }
         }
         if (pBuiltIn && pExternal) {
-            config.setAPI(SoundManagerConfig::kAPIDirectSound);
+            config.setAPI(windowsApi);
             config.clearOutputs();
             config.clearInputs();
             config.addOutput(pExternal->getDeviceId(),
@@ -802,7 +806,7 @@ SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool
                             mixxx::audio::ChannelCount::stereo(),
                             0));
             const QList<mixxx::audio::SampleRate> rates =
-                    getSampleRates(SoundManagerConfig::kAPIDirectSound);
+                    getSampleRates(windowsApi);
             const mixxx::audio::SampleRate rate = pExternal->getDefaultSampleRate();
             if (rates.contains(rate)) {
                 config.setSampleRate(rate);
@@ -818,8 +822,8 @@ SoundManagerConfig SoundManager::shonBuildAutoConfig(QString* pDescription, bool
 
     // Laptop only: Main on the system output, no headphone cue.
 #ifdef __WINDOWS__
-    if (apis.contains(SoundManagerConfig::kAPIDirectSound)) {
-        config.setAPI(SoundManagerConfig::kAPIDirectSound);
+    if (apis.contains(windowsApi)) {
+        config.setAPI(windowsApi);
         config.loadDefaults(this, SoundManagerConfig::DEVICES | SoundManagerConfig::OTHER);
     } else {
         config.loadDefaults(this,

@@ -103,7 +103,7 @@
                         <Children>
                           <CoverArt>
                             <SizePolicy>f,f</SizePolicy>
-                            <Size>140f,140f</Size>
+                            <Size>96f,96f</Size>
                             <!-- Shon: hidden in stealth mode -->
                             <Connection>
                               <ConfigKey>[Shon],stealth</ConfigKey>

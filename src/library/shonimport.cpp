@@ -1,10 +1,20 @@
 #include "library/shonimport.h"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <tlhelp32.h>
+#endif
+
 #include <QApplication>
 #include <QDesktopServices>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QLibrary>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <functional>
 #include <QDir>
 #include <QFile>
@@ -37,6 +47,8 @@
 #include "library/coverart.h"
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
+#include "mixer/playerinfo.h"
+#include "track/cue.h"
 #include "moc_shonimport.cpp"
 #include "track/track.h"
 #include "track/trackref.h"
@@ -62,6 +74,47 @@ QString musicDir() {
 }
 
 const ConfigKey kYtDlpKey(kGroup, QStringLiteral("import_ytdlp"));
+const ConfigKey kStemsWhilePlayingKey(kGroup, QStringLiteral("import_stems_while_playing"));
+
+#ifdef Q_OS_WIN
+// Pause or resume a process and everything it started (the py launcher
+// starts python, which runs Demucs).
+void shonSuspendTree(qint64 rootPid, bool suspend) {
+    using NtProcFn = long(__stdcall*)(void*);
+    static const auto ntSuspend = reinterpret_cast<NtProcFn>(
+            QLibrary::resolve(QStringLiteral("ntdll"), "NtSuspendProcess"));
+    static const auto ntResume = reinterpret_cast<NtProcFn>(
+            QLibrary::resolve(QStringLiteral("ntdll"), "NtResumeProcess"));
+    if (!ntSuspend || !ntResume || rootPid <= 0) {
+        return;
+    }
+    QList<qint64> pids{rootPid};
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W entry;
+        entry.dwSize = sizeof(entry);
+        // A few passes catch grandchildren too.
+        for (int pass = 0; pass < 3; ++pass) {
+            if (Process32FirstW(snapshot, &entry)) {
+                do {
+                    if (pids.contains(entry.th32ParentProcessID) &&
+                            !pids.contains(entry.th32ProcessID)) {
+                        pids << entry.th32ProcessID;
+                    }
+                } while (Process32NextW(snapshot, &entry));
+            }
+        }
+        CloseHandle(snapshot);
+    }
+    for (qint64 pid : std::as_const(pids)) {
+        HANDLE process = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, static_cast<DWORD>(pid));
+        if (process) {
+            (suspend ? ntSuspend : ntResume)(process);
+            CloseHandle(process);
+        }
+    }
+}
+#endif
 constexpr int kStuckMs = 150000; // no output from yt-dlp this long = stuck
 
 // Your own yt-dlp.exe first (the one you run by hand), then whatever is on PATH.
@@ -194,13 +247,65 @@ ShonImport::ShonImport(UserSettingsPointer pConfig,
     m_pInboxTimer->setInterval(4000);
     connect(m_pInboxTimer, &QTimer::timeout, this, &ShonImport::scanInbox);
     m_pInboxTimer->start();
+
+    // Stems pause while you play and pick up when the music stops.
+    m_pPlayWatch = new QTimer(this);
+    m_pPlayWatch->setInterval(1000);
+    connect(m_pPlayWatch, &QTimer::timeout, this, [this]() {
+        const bool hold = anyDeckPlaying() && !m_pConfig->getValue(kStemsWhilePlayingKey, false);
+        setStemsPaused(hold);
+        if (!hold && !m_pStems) {
+            pump(); // a batch that waited for the music to stop
+        }
+    });
+    m_pPlayWatch->start();
+}
+
+bool ShonImport::anyDeckPlaying() const {
+    for (int deck = 1; deck <= 4; ++deck) {
+        const ControlObject* pPlay = ControlObject::getControl(
+                ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play")),
+                ControlFlag::NoAssertIfMissing);
+        if (pPlay && pPlay->get() > 0.0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ShonImport::setStemsPaused(bool paused) {
+    if (paused == m_stemsPaused) {
+        return;
+    }
+    m_stemsPaused = paused;
+#ifdef Q_OS_WIN
+    if (m_pStems) {
+        shonSuspendTree(m_pStems->processId(), paused);
+    }
+#endif
+    for (Job& job : m_jobs) {
+        if (job.stage == Stage::Stems && job.message.isEmpty() && paused) {
+            job.message = QStringLiteral("playable, stems wait while you play");
+        } else if (job.stage == Stage::Stems && !paused &&
+                job.message == QStringLiteral("playable, stems wait while you play")) {
+            job.message.clear();
+        }
+    }
+    updateCard();
 }
 
 ShonImport::~ShonImport() {
-    if (m_pProcess) {
-        m_pProcess->disconnect(this);
-        m_pProcess->kill();
-        m_pProcess->waitForFinished(2000);
+#ifdef Q_OS_WIN
+    if (m_pStems && m_stemsPaused) {
+        shonSuspendTree(m_pStems->processId(), false); // let it be killed cleanly
+    }
+#endif
+    for (QProcess* pProcess : {m_pDownload, m_pStems, m_pPlaylist}) {
+        if (pProcess) {
+            pProcess->disconnect(this);
+            pProcess->kill();
+            pProcess->waitForFinished(2000);
+        }
     }
     if (m_pCard) {
         m_pCard->deleteLater();
@@ -235,20 +340,155 @@ QString ShonImport::stemScript() const {
 
 // ---------------------------------------------------------------- queue
 
+namespace {
+
+// The 11-character YouTube id in a link, or empty.
+QString youtubeId(const QString& url) {
+    static const QRegularExpression kId(
+            QStringLiteral("(?:[?&]v=|youtu\\.be/|/shorts/)([A-Za-z0-9_-]{11})"));
+    const auto match = kId.match(url);
+    return match.hasMatch() ? match.captured(1) : QString();
+}
+
+// A playlist link: /playlist?list=..., or a list= link with no song in it.
+bool isPlaylistLink(const QString& url) {
+    return url.contains(QLatin1String("list=")) &&
+            (url.contains(QLatin1String("/playlist")) || youtubeId(url).isEmpty());
+}
+
+} // namespace
+
+void ShonImport::loadHaveIds() {
+    if (m_haveIdsLoaded) {
+        return;
+    }
+    m_haveIdsLoaded = true;
+    // yt-dlp writes the video link into each file's tags. Read the start of
+    // every song you have (MP3 tags sit at the front) to know what you own.
+    static const QRegularExpression kUrl(
+            QStringLiteral("(?:youtube\\.com/watch\\?v=|youtu\\.be/)([A-Za-z0-9_-]{11})"));
+    const QStringList dirs = {originalsDir(), musicDir() + QStringLiteral("/Songs"), inboxDir()};
+    for (const QString& dir : dirs) {
+        const QFileInfoList files = QDir(dir).entryInfoList(QDir::Files);
+        for (const QFileInfo& info : files) {
+            if (!kAudioSuffixes.contains(info.suffix().toLower())) {
+                continue;
+            }
+            QFile file(info.absoluteFilePath());
+            if (!file.open(QIODevice::ReadOnly)) {
+                continue;
+            }
+            const QString head = QString::fromLatin1(file.read(600000));
+            const auto match = kUrl.match(head);
+            if (match.hasMatch()) {
+                m_haveIds.insert(match.captured(1));
+            }
+        }
+    }
+}
+
+bool ShonImport::haveVideo(const QString& videoId) {
+    if (videoId.isEmpty()) {
+        return false;
+    }
+    loadHaveIds();
+    if (m_haveIds.contains(videoId)) {
+        return true;
+    }
+    for (const Job& job : std::as_const(m_jobs)) {
+        if (job.videoId == videoId && job.stage != Stage::Failed) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ShonImport::addLink(const QString& url) {
     const QString link = url.trimmed();
     if (!link.startsWith(QLatin1String("http"))) {
         emit notice(QStringLiteral("Add songs: paste a full link (https://...)"));
         return;
     }
+    if (isPlaylistLink(link)) {
+        expandPlaylist(link);
+        return;
+    }
+    const QString videoId = youtubeId(link);
+    if (haveVideo(videoId)) {
+        emit notice(QStringLiteral("Add songs: you already have that one"));
+        return;
+    }
     Job job;
     job.id = m_nextId++;
     job.url = link;
+    job.videoId = videoId;
     job.name = link;
     m_jobs.append(job);
     emit notice(QStringLiteral("Add songs: link added"));
     updateCard();
-    startNext();
+    pump();
+}
+
+void ShonImport::expandPlaylist(const QString& url) {
+    if (m_pPlaylist) {
+        emit notice(QStringLiteral("Add songs: still reading the last playlist"));
+        return;
+    }
+    emit notice(QStringLiteral("Add songs: reading the playlist..."));
+    QStringList args = {QStringLiteral("--flat-playlist"),
+            QStringLiteral("--no-warnings"),
+            QStringLiteral("--print"),
+            QStringLiteral("%(id)s\t%(title)s"),
+            url};
+    QString program = findYtDlp(m_pConfig);
+    if (m_triedModuleYtDlp) {
+        args = pythonArgs() + QStringList{QStringLiteral("-m"), QStringLiteral("yt_dlp")} + args;
+        program = pythonProgram();
+    }
+    m_pPlaylist = newProcess();
+    QProcess* pProcess = m_pPlaylist;
+    connect(pProcess,
+            &QProcess::finished,
+            this,
+            [this, pProcess](int exitCode, QProcess::ExitStatus) {
+                const QString output = QString::fromUtf8(pProcess->readAll());
+                pProcess->deleteLater();
+                m_pPlaylist = nullptr;
+                int added = 0;
+                int skipped = 0;
+                const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QString id = line.section(QLatin1Char('\t'), 0, 0).trimmed();
+                    const QString title = line.section(QLatin1Char('\t'), 1).trimmed();
+                    if (id.size() != 11) {
+                        continue;
+                    }
+                    if (haveVideo(id)) {
+                        ++skipped;
+                        continue;
+                    }
+                    Job job;
+                    job.id = m_nextId++;
+                    job.url = QStringLiteral("https://www.youtube.com/watch?v=") + id;
+                    job.videoId = id;
+                    job.name = title.isEmpty() ? job.url : title;
+                    m_jobs.append(job);
+                    ++added;
+                }
+                if (added == 0 && skipped == 0) {
+                    emit notice(exitCode == 0
+                                    ? QStringLiteral("Add songs: that playlist looks empty")
+                                    : QStringLiteral("Add songs: could not read the playlist (%1)")
+                                              .arg(lastLine(output)));
+                } else {
+                    emit notice(QStringLiteral("Add songs: %1 new from the playlist, %2 you already have")
+                                        .arg(added)
+                                        .arg(skipped));
+                }
+                updateCard();
+                pump();
+            });
+    pProcess->start(program, args);
 }
 
 void ShonImport::scanInbox() {
@@ -284,71 +524,61 @@ void ShonImport::scanInbox() {
     }
     m_inboxSizes = sizes;
     updateCard();
-    startNext();
+    pump();
 }
 
-ShonImport::Job* ShonImport::currentJob() {
+ShonImport::Job* ShonImport::jobById(int id) {
     for (Job& job : m_jobs) {
-        if (job.id == m_currentId) {
+        if (job.id == id) {
             return &job;
         }
     }
     return nullptr;
 }
 
-void ShonImport::startNext() {
-    if (m_pProcess) {
-        return; // one song at a time
-    }
+void ShonImport::pump() {
+    // Dropped files skip the download and become playable right away.
     for (Job& job : m_jobs) {
-        if (job.stage == Stage::Waiting) {
-            m_currentId = job.id;
-            if (job.file.isEmpty()) {
-                runDownload(&job);
-            } else {
-                runStems(&job);
-            }
-            return;
+        if (job.stage == Stage::Waiting && !job.file.isEmpty() && job.url.isEmpty()) {
+            addPlayable(&job);
         }
     }
-    m_currentId = 0;
+    // Download lane: one link at a time.
+    if (!m_pDownload) {
+        for (Job& job : m_jobs) {
+            if (job.stage == Stage::Waiting && !job.url.isEmpty()) {
+                runDownload(&job);
+                break;
+            }
+        }
+    }
+    // Stems lane: everything playable so far, in one run, so the stem AI
+    // loads once instead of once per song. Not while music plays.
+    if (!m_pStems && !m_stemsPaused) {
+        runStemsBatch();
+    }
 }
 
-void ShonImport::startProcess(const QString& program, const QStringList& args) {
-    m_processOutput.clear();
-    m_pProcess = new QProcess(this);
-    m_pProcess->setProcessChannelMode(QProcess::MergedChannels);
+QProcess* ShonImport::newProcess() {
+    auto* pProcess = new QProcess(this);
+    pProcess->setProcessChannelMode(QProcess::MergedChannels);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
-    m_pProcess->setProcessEnvironment(env);
+    pProcess->setProcessEnvironment(env);
 #ifdef Q_OS_WIN
     // Below normal priority so the music never stutters, and no console window.
-    m_pProcess->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* pArgs) {
+    pProcess->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* pArgs) {
         pArgs->flags |= 0x00004000; // BELOW_NORMAL_PRIORITY_CLASS
         pArgs->flags |= 0x08000000; // CREATE_NO_WINDOW
     });
 #endif
-    connect(m_pProcess, &QProcess::readyRead, this, &ShonImport::onProcessOutput);
-    m_pProcess->start(program, args);
+    return pProcess;
 }
 
-void ShonImport::onProcessOutput() {
-    if (!m_pProcess) {
-        return;
-    }
-    const QByteArray chunk = m_pProcess->readAll();
-    m_processOutput += chunk;
-    if (auto* pWatchdog = m_pProcess->findChild<QTimer*>(QStringLiteral("shonWatchdog"))) {
-        pWatchdog->start();
-    }
-    if (m_processOutput.size() > 200000) {
-        m_processOutput = m_processOutput.right(100000);
-    }
-    Job* pJob = currentJob();
-    if (!pJob) {
-        return;
-    }
+namespace {
+
+int lastPercent(const QByteArray& chunk) {
     // Progress shows up as "45.3%" in yt-dlp and in Demucs' progress bar.
     static const QRegularExpression kPercent(QStringLiteral("(\\d{1,3})(?:\\.\\d+)?%"));
     auto it = kPercent.globalMatch(QString::fromUtf8(chunk));
@@ -356,10 +586,73 @@ void ShonImport::onProcessOutput() {
     while (it.hasNext()) {
         percent = it.next().captured(1).toInt();
     }
-    if (percent >= 0 && percent <= 100 && percent != pJob->percent) {
+    return percent <= 100 ? percent : -1;
+}
+
+} // namespace
+
+void ShonImport::onDownloadOutput() {
+    if (!m_pDownload) {
+        return;
+    }
+    const QByteArray chunk = m_pDownload->readAll();
+    m_downloadOutput += chunk;
+    if (auto* pWatchdog = m_pDownload->findChild<QTimer*>(QStringLiteral("shonWatchdog"))) {
+        pWatchdog->start();
+    }
+    if (m_downloadOutput.size() > 200000) {
+        m_downloadOutput = m_downloadOutput.right(100000);
+    }
+    Job* pJob = jobById(m_downloadId);
+    const int percent = lastPercent(chunk);
+    if (pJob && percent >= 0 && percent != pJob->percent) {
         pJob->percent = percent;
         updateCard();
     }
+}
+
+void ShonImport::onStemsOutput() {
+    if (!m_pStems) {
+        return;
+    }
+    const QByteArray chunk = m_pStems->readAll();
+    m_stemsOutput += chunk;
+    if (m_stemsOutput.size() > 200000) {
+        m_stemsOutput = m_stemsOutput.right(100000);
+    }
+    // The stem maker prints "  OK  <file name>" as each song finishes.
+    static const QRegularExpression kDone(QStringLiteral("^\\s*(OK|FAIL)\\s+(.+?)(?::\\s.*)?$"),
+            QRegularExpression::MultilineOption);
+    auto it = kDone.globalMatch(QString::fromUtf8(chunk));
+    while (it.hasNext()) {
+        const auto match = it.next();
+        const QString name = match.captured(2).trimmed();
+        for (int id : std::as_const(m_stemIds)) {
+            Job* pJob = jobById(id);
+            if (!pJob || pJob->stage != Stage::Stems ||
+                    QFileInfo(pJob->file).fileName() != name) {
+                continue;
+            }
+            if (match.captured(1) == QLatin1String("OK")) {
+                stemReady(pJob);
+            } else {
+                pJob->stage = Stage::Done;
+                pJob->message = QStringLiteral("added, stems failed");
+            }
+        }
+    }
+    // Progress on the first song still in this batch.
+    const int percent = lastPercent(chunk);
+    if (percent >= 0) {
+        for (int id : std::as_const(m_stemIds)) {
+            Job* pJob = jobById(id);
+            if (pJob && pJob->stage == Stage::Stems) {
+                pJob->percent = percent;
+                break;
+            }
+        }
+    }
+    updateCard();
 }
 
 // ---------------------------------------------------------------- steps
@@ -367,6 +660,8 @@ void ShonImport::onProcessOutput() {
 void ShonImport::runDownload(Job* pJob) {
     pJob->stage = Stage::Downloading;
     pJob->percent = -1;
+    m_downloadId = pJob->id;
+    m_downloadOutput.clear();
     updateCard();
     QStringList args = {QStringLiteral("-x"),
             QStringLiteral("--audio-format"),
@@ -396,47 +691,50 @@ void ShonImport::runDownload(Job* pJob) {
         args = pythonArgs() + QStringList{QStringLiteral("-m"), QStringLiteral("yt_dlp")} + args;
         program = pythonProgram();
     }
-    startProcess(program, args);
+    m_pDownload = newProcess();
+    QProcess* pProcess = m_pDownload;
+    connect(pProcess, &QProcess::readyRead, this, &ShonImport::onDownloadOutput);
     // Watchdog: if yt-dlp prints nothing for a while it is stuck (usually an
     // old yt-dlp after a YouTube change). Output restarts the clock.
-    auto* pWatchdog = new QTimer(m_pProcess);
+    auto* pWatchdog = new QTimer(pProcess);
     pWatchdog->setObjectName(QStringLiteral("shonWatchdog"));
     pWatchdog->setSingleShot(true);
     pWatchdog->setInterval(kStuckMs);
-    QProcess* pProcess = m_pProcess;
     connect(pWatchdog, &QTimer::timeout, pProcess, [pProcess]() {
         pProcess->setProperty("shonStuck", true);
         pProcess->kill();
     });
     pWatchdog->start();
-    connect(m_pProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+    connect(pProcess, &QProcess::errorOccurred, this, [this, pProcess](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) {
             return;
         }
-        m_pProcess->deleteLater();
-        m_pProcess = nullptr;
-        Job* pJob = currentJob();
+        pProcess->deleteLater();
+        m_pDownload = nullptr;
+        Job* pJob = jobById(m_downloadId);
         if (!pJob) {
+            pump();
             return;
         }
         if (!m_triedModuleYtDlp) {
             m_triedModuleYtDlp = true;
-            runDownload(pJob);
+            pJob->stage = Stage::Waiting; // try again with Python's yt-dlp
+            pump();
         } else {
             failJob(pJob, QStringLiteral("yt-dlp not found"));
         }
     });
-    connect(m_pProcess,
+    connect(pProcess,
             &QProcess::finished,
             this,
-            [this](int exitCode, QProcess::ExitStatus status) {
-                const QString output = QString::fromUtf8(m_processOutput);
-                const bool stuck = m_pProcess->property("shonStuck").toBool();
-                m_pProcess->deleteLater();
-                m_pProcess = nullptr;
-                Job* pJob = currentJob();
+            [this, pProcess](int exitCode, QProcess::ExitStatus status) {
+                const QString output = QString::fromUtf8(m_downloadOutput);
+                const bool stuck = pProcess->property("shonStuck").toBool();
+                pProcess->deleteLater();
+                m_pDownload = nullptr;
+                Job* pJob = jobById(m_downloadId);
                 if (!pJob) {
-                    startNext();
+                    pump();
                     return;
                 }
                 static const QRegularExpression kFile(QStringLiteral("SHONFILE:(.+)"));
@@ -460,47 +758,179 @@ void ShonImport::runDownload(Job* pJob) {
                 }
                 pJob->file = QDir::fromNativeSeparators(file);
                 pJob->name = QFileInfo(file).completeBaseName();
-                runStems(pJob);
+                addPlayable(pJob);
+                pump();
             });
+    pProcess->start(program, args);
 }
 
-void ShonImport::runStems(Job* pJob) {
-    pJob->stage = Stage::Stems;
+void ShonImport::addPlayable(Job* pJob) {
+    // Into the library right away so you can play it while stems are made.
+    const QString original = keepOriginal(pJob->file);
+    pJob->file = original;
+    TrackPointer pTrack =
+            m_pTrackCollectionManager->getOrAddTrack(TrackRef::fromFilePath(original));
+    if (!pTrack) {
+        failJob(pJob, QStringLiteral("could not add to the library"));
+        return;
+    }
+    cleanTags(pTrack);
+    appleLookup(pTrack);
+    emit m_pLibrary->analyzeTracks({AnalyzerScheduledTrack(pTrack->getId())});
+    pJob->trackId = pTrack->getId();
+    pJob->stage = Stage::Playable;
     pJob->percent = -1;
+    if (!pJob->videoId.isEmpty()) {
+        m_haveIds.insert(pJob->videoId);
+    }
+    pJob->name = pTrack->getArtist().isEmpty()
+            ? pTrack->getTitle()
+            : pTrack->getArtist() + QStringLiteral(" - ") + pTrack->getTitle();
+    emit notice(QStringLiteral("Ready to play: %1 (stems coming)").arg(pJob->name));
     updateCard();
-    emit notice(QStringLiteral("Making stems: %1").arg(pJob->name));
-    const QStringList args = pythonArgs() +
-            QStringList{stemScript(),
-                    QDir::toNativeSeparators(pJob->file),
-                    QStringLiteral("--out"),
-                    QDir::toNativeSeparators(stemsDir())};
-    startProcess(pythonProgram(), args);
-    connect(m_pProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart) {
-            return;
+}
+
+void ShonImport::runStemsBatch() {
+    QStringList files;
+    m_stemIds.clear();
+    for (Job& job : m_jobs) {
+        if (job.stage == Stage::Playable) {
+            job.stage = Stage::Stems;
+            job.percent = -1;
+            m_stemIds << job.id;
+            files << QDir::toNativeSeparators(job.file);
         }
-        m_pProcess->deleteLater();
-        m_pProcess = nullptr;
-        if (Job* pJob = currentJob()) {
-            // No Python or no Demucs: add the plain song so it's still usable.
-            finishJob(pJob, QString());
+    }
+    if (files.isEmpty()) {
+        return;
+    }
+    m_stemsOutput.clear();
+    updateCard();
+    const QStringList args = pythonArgs() + QStringList{stemScript()} + files +
+            QStringList{QStringLiteral("--out"), QDir::toNativeSeparators(stemsDir())};
+    m_pStems = newProcess();
+    QProcess* pProcess = m_pStems;
+    connect(pProcess, &QProcess::readyRead, this, &ShonImport::onStemsOutput);
+    const auto finishBatch = [this, pProcess]() {
+        pProcess->deleteLater();
+        m_pStems = nullptr;
+        // Anything not reported yet: use its stem file if one was made.
+        for (int id : std::as_const(m_stemIds)) {
+            Job* pJob = jobById(id);
+            if (!pJob || pJob->stage != Stage::Stems) {
+                continue;
+            }
+            const QString stemFile = stemsDir() + QLatin1Char('/') +
+                    QFileInfo(pJob->file).completeBaseName() + QStringLiteral(".stem.mp4");
+            if (QFileInfo::exists(stemFile)) {
+                stemReady(pJob);
+            } else {
+                // No Python or Demucs: the song stays as it is, still playable.
+                pJob->stage = Stage::Done;
+                pJob->message = QStringLiteral("added without stems");
+            }
+        }
+        m_stemIds.clear();
+        updateCard();
+        pump(); // songs that became playable meanwhile get the next batch
+    };
+    connect(pProcess, &QProcess::errorOccurred, this, [finishBatch](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            finishBatch();
         }
     });
-    connect(m_pProcess,
-            &QProcess::finished,
-            this,
-            [this](int, QProcess::ExitStatus) {
-                m_pProcess->deleteLater();
-                m_pProcess = nullptr;
-                Job* pJob = currentJob();
-                if (!pJob) {
-                    startNext();
-                    return;
+    connect(pProcess, &QProcess::finished, this, [finishBatch](int, QProcess::ExitStatus) {
+        finishBatch();
+    });
+    emit notice(QStringLiteral("Making stems for %1 song(s)").arg(files.size()));
+    pProcess->start(pythonProgram(), args);
+}
+
+void ShonImport::stemReady(Job* pJob) {
+    pJob->stemFile = stemsDir() + QLatin1Char('/') +
+            QFileInfo(pJob->file).completeBaseName() + QStringLiteral(".stem.mp4");
+    if (!swapToStems(pJob)) {
+        // On a deck right now: swap once it's unloaded.
+        pJob->stage = Stage::Stems;
+        pJob->message = QStringLiteral("stems ready, swaps in after you unload it");
+        pJob->percent = 100;
+        if (!m_pSwapTimer) {
+            m_pSwapTimer = new QTimer(this);
+            m_pSwapTimer->setInterval(5000);
+            connect(m_pSwapTimer, &QTimer::timeout, this, &ShonImport::trySwaps);
+        }
+        m_pSwapTimer->start();
+    }
+    updateCard();
+}
+
+void ShonImport::trySwaps() {
+    bool waiting = false;
+    for (Job& job : m_jobs) {
+        if (job.stage == Stage::Stems && !job.stemFile.isEmpty() && !m_stemIds.contains(job.id)) {
+            if (!swapToStems(&job)) {
+                waiting = true;
+            }
+        }
+    }
+    if (!waiting && m_pSwapTimer) {
+        m_pSwapTimer->stop();
+    }
+    updateCard();
+}
+
+bool ShonImport::swapToStems(Job* pJob) {
+    TrackPointer pOld = m_pTrackCollectionManager->getTrackById(pJob->trackId);
+    if (pOld && PlayerInfo::instance().isTrackLoaded(pOld)) {
+        return false; // never pull a song out from under a deck
+    }
+    TrackPointer pNew =
+            m_pTrackCollectionManager->getOrAddTrack(TrackRef::fromFilePath(pJob->stemFile));
+    if (!pNew) {
+        pJob->stage = Stage::Done;
+        pJob->message = QStringLiteral("added, stems could not be swapped in");
+        return true;
+    }
+    if (pOld && pOld != pNew) {
+        // Everything you did to the song while stems were made comes along.
+        pNew->setTitle(pOld->getTitle());
+        pNew->setArtist(pOld->getArtist());
+        if (!pOld->getGenre().isEmpty()) {
+            pNew->updateGenre(pOld->getGenre());
+        }
+        pNew->setYear(pOld->getYear());
+        pNew->setColor(pOld->getColor());
+        pNew->setRating(pOld->getRating());
+        pNew->setComment(pOld->getComment());
+        pNew->setPlayCounter(pOld->getPlayCounter());
+        pNew->setCoverInfo(pOld->getCoverInfo());
+        const auto oldRate = pOld->getSampleRate();
+        const auto newRate = pNew->getSampleRate();
+        if (oldRate.isValid() && newRate.isValid()) {
+            QList<CuePointer> cues;
+            for (const CuePointer& pCue : pOld->getCuePoints()) {
+                if (pCue) {
+                    cues << CuePointer(new Cue(pCue->getCueInfo(oldRate), newRate, true));
                 }
-                const QString stemFile = stemsDir() + QLatin1Char('/') +
-                        QFileInfo(pJob->file).completeBaseName() + QStringLiteral(".stem.mp4");
-                finishJob(pJob, QFileInfo::exists(stemFile) ? stemFile : QString());
-            });
+            }
+            if (!cues.isEmpty()) {
+                pNew->setCuePoints(cues);
+            }
+            if (const mixxx::BeatsPointer pBeats = pOld->getBeats();
+                    pBeats && oldRate == newRate) {
+                pNew->trySetBeats(pBeats);
+            }
+        }
+        pNew->setKeys(pOld->getKeys());
+        m_pTrackCollectionManager->hideTracks({pOld->getId()});
+    }
+    emit m_pLibrary->analyzeTracks({AnalyzerScheduledTrack(pNew->getId())});
+    pJob->trackId = pNew->getId();
+    pJob->stage = Stage::Done;
+    pJob->percent = 100;
+    pJob->message = QStringLiteral("stems ready");
+    emit notice(QStringLiteral("Stems ready: %1").arg(pJob->name));
+    return true;
 }
 
 QString ShonImport::keepOriginal(const QString& file) const {
@@ -513,36 +943,12 @@ QString ShonImport::keepOriginal(const QString& file) const {
     return QFile::rename(file, target) ? target : file;
 }
 
-void ShonImport::finishJob(Job* pJob, const QString& stemFile) {
-    const QString original = keepOriginal(pJob->file);
-    pJob->file = original;
-    const QString addPath = stemFile.isEmpty() ? original : stemFile;
-    TrackPointer pTrack = m_pTrackCollectionManager->getOrAddTrack(TrackRef::fromFilePath(addPath));
-    if (!pTrack) {
-        failJob(pJob, QStringLiteral("could not add to the library"));
-        return;
-    }
-    cleanTags(pTrack);
-    appleLookup(pTrack);
-    emit m_pLibrary->analyzeTracks({AnalyzerScheduledTrack(pTrack->getId())});
-    pJob->stage = Stage::Done;
-    pJob->percent = 100;
-    pJob->name = pTrack->getArtist().isEmpty()
-            ? pTrack->getTitle()
-            : pTrack->getArtist() + QStringLiteral(" - ") + pTrack->getTitle();
-    pJob->message = stemFile.isEmpty() ? QStringLiteral("added without stems")
-                                       : QStringLiteral("added with stems");
-    emit notice(QStringLiteral("Added: %1 (%2)").arg(pJob->name, pJob->message));
-    updateCard();
-    startNext();
-}
-
 void ShonImport::failJob(Job* pJob, const QString& message) {
     pJob->stage = Stage::Failed;
     pJob->message = message;
     emit notice(QStringLiteral("Add songs: %1 (%2)").arg(pJob->name, message));
     updateCard();
-    startNext();
+    pump();
 }
 
 void ShonImport::cleanTags(const TrackPointer& pTrack) const {
@@ -724,6 +1130,7 @@ void ShonImport::appleCover(const TrackPointer& pTrack, const QString& artworkUr
 
 void ShonImport::showCard() {
     QWidget* pParent = QApplication::activeWindow();
+    const bool firstTime = !m_pCard;
     if (!m_pCard) {
         m_pCard = new QWidget(pParent, Qt::Tool | Qt::FramelessWindowHint);
         m_pCard->setObjectName(QStringLiteral("ShonImportCard"));
@@ -746,6 +1153,11 @@ void ShonImport::showCard() {
         pLayout->setSpacing(10);
         auto* pTitle = new QLabel(QStringLiteral("Add songs"), m_pCard);
         pTitle->setObjectName(QStringLiteral("ShonImportTitle"));
+        pTitle->setCursor(Qt::OpenHandCursor);
+        pTitle->setToolTip(QStringLiteral("Drag to move"));
+        pTitle->installEventFilter(this);
+        m_pTitleLabel = pTitle;
+        qApp->installEventFilter(this);
         pLayout->addWidget(pTitle);
         auto* pHint = new QLabel(QStringLiteral(
                                          "Drop songs or links in the box, or paste a YouTube link. "
@@ -826,13 +1238,45 @@ void ShonImport::showCard() {
     }
     updateCard();
     m_pCard->adjustSize();
-    if (pParent) {
+    if (pParent && firstTime) { // after that it stays where you dragged it
         const QRect area = pParent->geometry();
         m_pCard->move(area.center() - QPoint(m_pCard->width() / 2, m_pCard->height() / 2));
     }
     m_pCard->show();
     m_pCard->raise();
     m_pLinkEdit->setFocus();
+}
+
+bool ShonImport::eventFilter(QObject* pObject, QEvent* pEvent) {
+    if (!m_pCard) {
+        return QObject::eventFilter(pObject, pEvent);
+    }
+    if (pObject == m_pTitleLabel) {
+        auto* pMouse = static_cast<QMouseEvent*>(pEvent);
+        if (pEvent->type() == QEvent::MouseButtonPress && pMouse->button() == Qt::LeftButton) {
+            m_dragOffset = pMouse->globalPosition().toPoint() - m_pCard->pos();
+            m_pTitleLabel->setCursor(Qt::ClosedHandCursor);
+            return true;
+        }
+        if (pEvent->type() == QEvent::MouseMove && (pMouse->buttons() & Qt::LeftButton)) {
+            m_pCard->move(pMouse->globalPosition().toPoint() - m_dragOffset);
+            return true;
+        }
+        if (pEvent->type() == QEvent::MouseButtonRelease) {
+            m_pTitleLabel->setCursor(Qt::OpenHandCursor);
+            return true;
+        }
+    }
+    // A click anywhere else in ShonDJ closes the card. Other apps (like
+    // Explorer, to drag songs in) don't count.
+    if (pEvent->type() == QEvent::MouseButtonPress && m_pCard->isVisible()) {
+        auto* pWidget = qobject_cast<QWidget*>(pObject);
+        if (pWidget && pWidget->window() != m_pCard &&
+                !(pWidget->window()->windowFlags() & Qt::Popup)) {
+            m_pCard->hide();
+        }
+    }
+    return QObject::eventFilter(pObject, pEvent);
 }
 
 void ShonImport::updateCard() {
@@ -845,7 +1289,15 @@ void ShonImport::updateCard() {
         return;
     }
     QStringList rows;
+    // A long playlist: show the songs being worked on and the next few,
+    // then a count, so the card stays a sensible size.
+    int waitingShown = 0;
+    int waitingHidden = 0;
     for (const Job& job : std::as_const(m_jobs)) {
+        if (job.stage == Stage::Waiting && ++waitingShown > 5) {
+            ++waitingHidden;
+            continue;
+        }
         QString stage;
         QString color = QStringLiteral("#8a8a92");
         switch (job.stage) {
@@ -856,8 +1308,13 @@ void ShonImport::updateCard() {
             stage = QStringLiteral("downloading");
             color = QStringLiteral("#2f6bff");
             break;
+        case Stage::Playable:
+            stage = QStringLiteral("playable, stems next");
+            color = QStringLiteral("#34c759");
+            break;
         case Stage::Stems:
-            stage = QStringLiteral("making stems");
+            stage = job.message.isEmpty() ? QStringLiteral("playable, making stems")
+                                          : job.message;
             color = QStringLiteral("#2f6bff");
             break;
         case Stage::Done:
@@ -869,7 +1326,9 @@ void ShonImport::updateCard() {
             color = QStringLiteral("#ff3b30");
             break;
         }
-        if ((job.stage == Stage::Downloading || job.stage == Stage::Stems) && job.percent >= 0) {
+        if ((job.stage == Stage::Downloading ||
+                    (job.stage == Stage::Stems && job.message.isEmpty())) &&
+                job.percent >= 0) {
             stage += QStringLiteral(" %1%").arg(job.percent);
         }
         QString name = job.name;
@@ -878,6 +1337,13 @@ void ShonImport::updateCard() {
         }
         rows << QStringLiteral("%1 <span style='color:%2'>%3</span>")
                         .arg(name.toHtmlEscaped(), color, stage.toHtmlEscaped());
+    }
+    if (waitingHidden > 0) {
+        rows << QStringLiteral("<span style='color:#8a8a92'>and %1 more waiting</span>")
+                        .arg(waitingHidden);
+    }
+    if (rows.size() > 14) {
+        rows = rows.mid(rows.size() - 14); // newest at the bottom
     }
     m_pJobsLabel->setText(rows.join(QStringLiteral("<br>")));
     m_pCard->adjustSize();

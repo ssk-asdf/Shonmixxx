@@ -3845,3 +3845,25 @@ WPushButton#BpmTap, #BpmTapContainer, #BpmTapContainer:hover {
 #ToolBar WPushButton#ShonRequestsButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_requests_on.svg); background-color: #2f6bff; }
 #ToolBar WPushButton#ShonPhoneButton[displayValue="0"] { image: url(skin:/palemoon/buttons/shon_phone_off.svg); }
 #ToolBar WPushButton#ShonPhoneButton[displayValue="1"] { image: url(skin:/palemoon/buttons/shon_phone_on.svg); background-color: #2f6bff; }
+
+/* Shon: EQ / STEMS switch above the mixer knobs */
+WPushButton#ShonStemEqToggle {
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid #070708;
+  border-radius: 5px;
+  margin: 0px 0px 2px 0px;
+}
+WPushButton#ShonStemEqToggle[displayValue="0"] { color: #8a8a92; background-color: transparent; }
+WPushButton#ShonStemEqToggle[displayValue="1"] { color: #ffffff; background-color: #2f6bff; }
+
+/* Shon: flip between banks of 8 hot cues */
+#DecksLeft WPushButton#ShonCueBank, #DecksRight WPushButton#ShonCueBank, WPushButton#ShonCueBank {
+  border: none;
+  background-color: transparent;
+  color: #8a8a92;
+  font-size: 18px;
+  margin: 0px;
+  padding: 0px;
+}
+#DecksLeft WPushButton#ShonCueBank:hover, #DecksRight WPushButton#ShonCueBank:hover { color: #ffffff; }

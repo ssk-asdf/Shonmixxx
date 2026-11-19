@@ -62,7 +62,8 @@ const QString kAppGroup = QStringLiteral("[App]");
 const QString kLegacyGroup = QStringLiteral("[Master]");
 
 // Utilize half of the available cores for adhoc analysis of tracks
-const int kNumberOfAnalyzerThreads = math_max(1, QThread::idealThreadCount() / 2);
+// Shon: one at a time, same reason as the library analyzer.
+const int kNumberOfAnalyzerThreads = 1;
 
 const QRegularExpression kDeckRegex(QStringLiteral("^\\[Channel(\\d+)\\]$"));
 const QRegularExpression kSamplerRegex(QStringLiteral("^\\[Sampler(\\d+)\\]$"));

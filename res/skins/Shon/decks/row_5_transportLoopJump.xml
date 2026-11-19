@@ -98,44 +98,36 @@
           <WidgetGroup><SizePolicy>me,min</SizePolicy></WidgetGroup>
 
           <WidgetGroup><!-- HotCues -->
-            <Layout>vertical</Layout>
+            <Layout>horizontal</Layout>
             <SizePolicy>max,min</SizePolicy>
             <Children>
-              <WidgetGroup><!-- HotCues 1-2 / 1-4 -->
-                <Layout>horizontal</Layout>
-                <Children>
-
-                  <Template src="skin:/controls/button_hotcue_deck.xml">
-                    <SetVariable name="number">1</SetVariable>
-                  </Template>
-                  <Template src="skin:/controls/button_hotcue_deck.xml">
-                    <SetVariable name="number">2</SetVariable>
-                  </Template>
-
-                  <WidgetGroup>
-                    <Layout>horizontal</Layout>
-                    <Children>
-                      <Template src="skin:/controls/button_hotcue_deck.xml">
-                        <SetVariable name="number">3</SetVariable>
-                      </Template>
-                      <Template src="skin:/controls/button_hotcue_deck.xml">
-                        <SetVariable name="number">4</SetVariable>
-                      </Template>
-                    </Children>
-                    <Connection>
-                      <ConfigKey>[Skin],show_8_hotcues</ConfigKey>
-                      <BindProperty>visible</BindProperty>
-                    </Connection>
-                  </WidgetGroup>
-                </Children>
-              </WidgetGroup><!-- HotCues 1-2 / 1-4 -->
-
-              <!-- HotCues (3-4 / 5-8) -->
-              <WidgetStack currentpage="[Skin],show_8_hotcues" persist="true">
+          <PushButton>
+            <ObjectName>ShonCueBank</ObjectName>
+            <Tooltip>Previous 8 hot cues</Tooltip>
+            <Size>18f,64f</Size>
+            <NumberStates>1</NumberStates>
+            <State><Number>0</Number><Text>&#8249;</Text></State>
+            <Connection>
+              <ConfigKey>[Skin],shon_cue_prev_<Variable name="ChanNum"/></ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
+          <WidgetStack>
+            <NextControl>[Skin],shon_cue_next_<Variable name="ChanNum"/></NextControl>
+            <PrevControl>[Skin],shon_cue_prev_<Variable name="ChanNum"/></PrevControl>
+            <Children>
+              <WidgetGroup>
+                <Layout>vertical</Layout>
                 <Children>
                   <WidgetGroup>
                     <Layout>horizontal</Layout>
                     <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">1</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">2</SetVariable>
+                      </Template>
                       <Template src="skin:/controls/button_hotcue_deck.xml">
                         <SetVariable name="number">3</SetVariable>
                       </Template>
@@ -144,8 +136,7 @@
                       </Template>
                     </Children>
                   </WidgetGroup>
-
-                  <WidgetGroup  trigger="[Skin],show_8_hotcues">
+                  <WidgetGroup>
                     <Layout>horizontal</Layout>
                     <Children>
                       <Template src="skin:/controls/button_hotcue_deck.xml">
@@ -163,7 +154,137 @@
                     </Children>
                   </WidgetGroup>
                 </Children>
-              </WidgetStack><!-- HotCues (3-4 / 5-8) -->
+              </WidgetGroup>
+              <WidgetGroup>
+                <Layout>vertical</Layout>
+                <Children>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">9</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">10</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">11</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">12</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">13</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">14</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">15</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">16</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                </Children>
+              </WidgetGroup>
+              <WidgetGroup>
+                <Layout>vertical</Layout>
+                <Children>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">17</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">18</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">19</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">20</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">21</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">22</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">23</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">24</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                </Children>
+              </WidgetGroup>
+              <WidgetGroup>
+                <Layout>vertical</Layout>
+                <Children>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">25</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">26</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">27</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">28</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                  <WidgetGroup>
+                    <Layout>horizontal</Layout>
+                    <Children>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">29</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">30</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">31</SetVariable>
+                      </Template>
+                      <Template src="skin:/controls/button_hotcue_deck.xml">
+                        <SetVariable name="number">32</SetVariable>
+                      </Template>
+                    </Children>
+                  </WidgetGroup>
+                </Children>
+              </WidgetGroup>
+            </Children>
+          </WidgetStack>
+          <PushButton>
+            <ObjectName>ShonCueBank</ObjectName>
+            <Tooltip>Next 8 hot cues (9-16, 17-24, 25-32)</Tooltip>
+            <Size>18f,64f</Size>
+            <NumberStates>1</NumberStates>
+            <State><Number>0</Number><Text>&#8250;</Text></State>
+            <Connection>
+              <ConfigKey>[Skin],shon_cue_next_<Variable name="ChanNum"/></ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
             </Children>
             <Connection>
               <ConfigKey>[Skin],show_hotcues</ConfigKey>

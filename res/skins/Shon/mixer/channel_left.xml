@@ -17,6 +17,26 @@ vertical layout and a side-by-side layout for two-deck mode -->
     <SizePolicy>min,min</SizePolicy>
     <Children>
 
+      <WidgetGroup><!-- Shon: EQ knobs, or stem knobs with the STEMS button -->
+        <Layout>vertical</Layout>
+        <SizePolicy>min,min</SizePolicy>
+        <Children>
+          <PushButton>
+            <ObjectName>ShonStemEqToggle</ObjectName>
+            <Tooltip>Switch these knobs between EQ (high, mid, low, filter) and stems (vocals, melody, bass, drums)</Tooltip>
+            <Size>40f,18f</Size>
+            <NumberStates>2</NumberStates>
+            <State><Number>0</Number><Text>EQ</Text></State>
+            <State><Number>1</Number><Text>STEMS</Text></State>
+            <Connection>
+              <ConfigKey persist="true">[Skin],shon_stem_knobs_<Variable name="ChanNum"/></ConfigKey>
+              <ButtonState>LeftButton</ButtonState>
+            </Connection>
+          </PushButton>
+          <WidgetGroup>
+            <Layout>vertical</Layout>
+            <SizePolicy>min,me</SizePolicy>
+            <Children>
       <WidgetGroup><!-- EQs -->
         <Layout>vertical</Layout>
         <ObjectName>MixerChannel_2Decks_Left</ObjectName>
@@ -59,6 +79,70 @@ vertical layout and a side-by-side layout for two-deck mode -->
           <BindProperty>visible</BindProperty>
         </Connection>
       </WidgetGroup><!-- /EQs -->
+            </Children>
+            <Connection>
+              <ConfigKey persist="true">[Skin],shon_stem_knobs_<Variable name="ChanNum"/></ConfigKey>
+              <Transform><Not/></Transform>
+              <BindProperty>visible</BindProperty>
+            </Connection>
+          </WidgetGroup>
+          <WidgetGroup><!-- stem knobs: top to bottom like the EQ, vocals, melody, bass, drums -->
+            <Layout>vertical</Layout>
+            <SizePolicy>min,me</SizePolicy>
+            <Children>
+              <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+              <Template src="skin:/controls/knob.xml">
+                <SetVariable name="Group">[Channel<Variable name="ChanNum"/>_Stem4]</SetVariable>
+                <SetVariable name="Control">volume</SetVariable>
+                <SetVariable name="Size">40f,34f</SetVariable>
+                <SetVariable name="KnobColor">grey</SetVariable>
+                <SetVariable name="ArcColor">#f2e6c9</SetVariable>
+                <SetVariable name="ArcUnipolar">true</SetVariable>
+                <SetVariable name="ObjectName">ShonStemKnob</SetVariable>
+                <SetVariable name="TooltipId">stem_volume</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,2f</Size></WidgetGroup>
+              <Template src="skin:/controls/knob.xml">
+                <SetVariable name="Group">[Channel<Variable name="ChanNum"/>_Stem3]</SetVariable>
+                <SetVariable name="Control">volume</SetVariable>
+                <SetVariable name="Size">40f,34f</SetVariable>
+                <SetVariable name="KnobColor">grey</SetVariable>
+                <SetVariable name="ArcColor">#f5a524</SetVariable>
+                <SetVariable name="ArcUnipolar">true</SetVariable>
+                <SetVariable name="ObjectName">ShonStemKnob</SetVariable>
+                <SetVariable name="TooltipId">stem_volume</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,2f</Size></WidgetGroup>
+              <Template src="skin:/controls/knob.xml">
+                <SetVariable name="Group">[Channel<Variable name="ChanNum"/>_Stem2]</SetVariable>
+                <SetVariable name="Control">volume</SetVariable>
+                <SetVariable name="Size">40f,34f</SetVariable>
+                <SetVariable name="KnobColor">grey</SetVariable>
+                <SetVariable name="ArcColor">#2f6bff</SetVariable>
+                <SetVariable name="ArcUnipolar">true</SetVariable>
+                <SetVariable name="ObjectName">ShonStemKnob</SetVariable>
+                <SetVariable name="TooltipId">stem_volume</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,2f</Size></WidgetGroup>
+              <Template src="skin:/controls/knob.xml">
+                <SetVariable name="Group">[Channel<Variable name="ChanNum"/>_Stem1]</SetVariable>
+                <SetVariable name="Control">volume</SetVariable>
+                <SetVariable name="Size">40f,34f</SetVariable>
+                <SetVariable name="KnobColor">grey</SetVariable>
+                <SetVariable name="ArcColor">#ffffff</SetVariable>
+                <SetVariable name="ArcUnipolar">true</SetVariable>
+                <SetVariable name="ObjectName">ShonStemKnob</SetVariable>
+                <SetVariable name="TooltipId">stem_volume</SetVariable>
+              </Template>
+              <WidgetGroup><Size>1min,0me</Size></WidgetGroup>
+            </Children>
+            <Connection>
+              <ConfigKey persist="true">[Skin],shon_stem_knobs_<Variable name="ChanNum"/></ConfigKey>
+              <BindProperty>visible</BindProperty>
+            </Connection>
+          </WidgetGroup>
+        </Children>
+      </WidgetGroup>
 
       <WidgetGroup>
         <ObjectName>VolumeGain2Decks</ObjectName>

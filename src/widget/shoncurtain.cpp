@@ -4,6 +4,7 @@
 #include <QCursor>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QPropertyAnimation>
 #include <QScreen>
 #include <QShortcut>
 #include <QTimer>
@@ -106,9 +107,30 @@ void ShonCurtain::showCurtain() {
     fitToScreen();
     m_lastCursor = QCursor::pos();
     m_shownFor.start();
+    // Fade in slowly so the logo eases over the set instead of popping up.
+    const bool wasVisible = isVisible();
+    if (!m_pFade) {
+        m_pFade = new QPropertyAnimation(this, "windowOpacity", this);
+        connect(m_pFade, &QPropertyAnimation::finished, this, [this]() {
+            if (m_fadingOut) {
+                m_fadingOut = false;
+                hide();
+            }
+        });
+    }
+    m_pFade->stop();
+    m_fadingOut = false;
+    if (!wasVisible) {
+        setWindowOpacity(0.0);
+    }
     show();
     raise();
     activateWindow();
+    m_pFade->setDuration(800);
+    m_pFade->setEasingCurve(QEasingCurve::InOutQuad);
+    m_pFade->setStartValue(windowOpacity());
+    m_pFade->setEndValue(1.0);
+    m_pFade->start();
     if (m_pShow->get() <= 0.0) {
         m_pShow->set(1.0);
     }
@@ -127,8 +149,20 @@ void ShonCurtain::fitToScreen() {
 
 void ShonCurtain::hideCurtain() {
     m_idle.restart();
-    if (isVisible()) {
-        hide();
+    if (isVisible() && !m_fadingOut) {
+        // Fade out fast: you touched something, so ShonDJ should be back now.
+        m_fadingOut = true;
+        if (m_pFade) {
+            m_pFade->stop();
+            m_pFade->setDuration(250);
+            m_pFade->setEasingCurve(QEasingCurve::OutQuad);
+            m_pFade->setStartValue(windowOpacity());
+            m_pFade->setEndValue(0.0);
+            m_pFade->start();
+        } else {
+            m_fadingOut = false;
+            hide();
+        }
         if (m_pMainWindow) {
             m_pMainWindow->activateWindow();
         }

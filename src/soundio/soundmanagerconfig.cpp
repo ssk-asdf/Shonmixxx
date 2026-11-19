@@ -544,6 +544,9 @@ void SoundManagerConfig::loadDefaults(SoundManager* soundManager, unsigned int f
                     SoundManagerConfig::kAPIAsio, true, false);
             if (apiList.contains(SoundManagerConfig::kAPIAsio) && !deviceList.isEmpty()) {
                 m_api = SoundManagerConfig::kAPIAsio;
+            } else if (apiList.contains(QStringLiteral("Windows WASAPI"))) {
+                // Shon: WASAPI by default, lower latency than DirectSound.
+                m_api = QStringLiteral("Windows WASAPI");
             } else {
                 m_api = SoundManagerConfig::kAPIDirectSound;
             }

@@ -1,5 +1,6 @@
 #include "mixxxmainwindow.h"
 
+#include <algorithm>
 #include <QLibrary>
 
 #include <QCheckBox>
@@ -1734,17 +1735,39 @@ void MixxxMainWindow::shonSetupAudioHotplug() {
 
 void MixxxMainWindow::shonCheckAudioDevices() {
     const QStringList names = shonOutputDeviceNames();
-    const bool soundDevicesChanged = names != m_shonOutputNames;
-    m_shonOutputNames = names;
-    if (!soundDevicesChanged) {
-        // Something else was plugged in. Only rescan when nothing is
-        // playing, so a mouse or USB stick never cuts the music.
-        for (int deck = 1; deck <= 4; ++deck) {
-            if (ControlObject::get(ConfigKey(
-                        QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play"))) > 0) {
-                return;
+    bool playing = false;
+    for (int deck = 1; deck <= 4; ++deck) {
+        if (ControlObject::get(ConfigKey(
+                    QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play"))) > 0) {
+            playing = true;
+        }
+    }
+    if (playing) {
+        // Mid-set: only touch the audio if the speaker we're playing on is
+        // gone. Anything else (a phone pairing, a Bluetooth blip, a USB
+        // stick) waits until the music stops, so it never cuts the sound.
+        bool outputStillThere = true;
+        const auto outputs = m_pCoreServices->getSoundManager()->getConfig().getOutputs();
+        for (auto it = outputs.cbegin(); it != outputs.cend(); ++it) {
+            const QString device = it.key().name.left(31);
+            const bool found = std::any_of(names.cbegin(), names.cend(), [&](const QString& n) {
+                return device.startsWith(n.left(31)) || n.startsWith(device);
+            });
+            if (!found && !names.isEmpty()) {
+                outputStillThere = false;
             }
         }
+        if (outputStillThere) {
+            if (m_pShonDeviceTimer) {
+                m_pShonDeviceTimer->start(5000); // look again in a bit
+            }
+            return;
+        }
+    }
+    const bool soundDevicesChanged = names != m_shonOutputNames;
+    m_shonOutputNames = names;
+    if (!soundDevicesChanged && playing) {
+        return;
     }
     shonShowNotice(m_pCoreServices->getSoundManager()->shonHandleDeviceChange());
 }
